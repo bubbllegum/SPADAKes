@@ -1,0 +1,24 @@
+{
+  "name": "SPADAKes - Strategi Pengendalian Deviasi Anggaran Kesehatan",
+  "short_name": "SPADAKes",
+  "description": "Monitoring realisasi, anggaran kas, PAD, dan deviasi anggaran kesehatan Provinsi Banten.",
+  "id": "./",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f2e28",
+  "theme_color": "#0f2e28",
+  "lang": "id",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Dashboard", "url": "./?go=dashboard", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Struktur Anggaran", "url": "./?go=struktur", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Rekapitulasi", "url": "./?go=rekap", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

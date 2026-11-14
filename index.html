@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SPADAKes | Pengendalian Deviasi Anggaran Kesehatan</title>
+<meta name="description" content="Strategi Pengendalian Deviasi Anggaran Kesehatan - Pemerintah Provinsi Banten">
+<meta name="theme-color" content="#0f2e28">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SPADAKes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- ======================= LOGIN ======================= -->
+<section id="login" class="hidden">
+  <div class="lg-hero">
+    <div class="brand">
+      <div class="brand-logo"><img class="logo-img" src="icons/logo.png" alt="Logo Provinsi Banten"></div>
+      <div class="brand-txt">
+        <small>Pemerintah Provinsi Banten</small>
+        <b>SPADAKes<i>.</i></b>
+        <span>Strategi Pengendalian Deviasi Anggaran Kesehatan</span>
+      </div>
+    </div>
+    <div class="lg-copy">
+      <div class="eyebrow">Anggaran Terkendali · Layanan Terjaga</div>
+      <h1>Data yang akurat.<em>Keputusan yang tepat.</em></h1>
+      <p>Platform monitoring anggaran kesehatan untuk mendukung pengendalian realisasi, anggaran kas, pendapatan, dan deviasi setiap unit kerja.</p>
+      <div class="ticks"><span>Monitoring lintas unit</span><span>Evaluasi deviasi berkala</span><span>Rekapitulasi terintegrasi</span></div>
+    </div>
+    <div class="lg-foot"><span>SPADAKes · Versi 1.0</span><span>Integritas · Akuntabilitas · Transparansi</span></div>
+  </div>
+
+  <div class="lg-form">
+    <div class="lg-top"><span class="eyebrow">Portal Pengelolaan Anggaran</span><span class="secure">SECURE ACCESS</span></div>
+    <form class="lg-box" id="loginForm" autocomplete="on">
+      <div class="eyebrow">Selamat Datang Kembali</div>
+      <h2>Masuk ke akun Anda</h2>
+      <p class="lg-sub">Silakan login menggunakan akun unit kerja atau administrator.</p>
+      <div id="loginErr" class="lg-err hidden" role="alert"></div>
+      <div class="field">
+        <label for="lgUser">Username</label>
+        <div class="inp">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
+          <input id="lgUser" name="username" placeholder="Masukkan username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="lgPass">Password</label>
+        <div class="inp">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          <input id="lgPass" name="password" type="password" placeholder="Masukkan password" autocomplete="current-password" required>
+          <button type="button" class="eye" id="lgEye" aria-label="Tampilkan password"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
+      </div>
+      <label class="remember"><input type="checkbox" id="lgRem" checked><span class="box"></span><span>Ingat saya di perangkat ini <small>(tetap masuk 30 hari)</small></span></label>
+      <button class="btn-login" id="lgBtn" type="submit"><span>Masuk ke Dashboard</span><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+      <div class="lg-note">Akses dibatasi berdasarkan hak pengguna dan unit kerja.</div>
+    </form>
+    <div class="lg-bottom">
+      <span class="lg-copy-r">© <span id="yr"></span> SPADAKes · Dinas Kesehatan Provinsi Banten</span>
+      <span class="lg-links"><a href="#" id="lnkServer">Atur server</a><a href="#" id="lnkInstall" class="hidden">Instal aplikasi</a></span>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= APP ======================= -->
+<section id="app" class="hidden">
+  <div class="scrim" id="scrim"></div>
+  <aside class="side" id="side">
+    <div class="side-brand">
+      <div class="lg"><img class="logo-img" src="icons/logo.png" alt="Logo Banten"></div>
+      <div><b>SPADAKes<i>.</i></b><small>PROVINSI BANTEN</small></div>
+    </div>
+    <nav class="side-nav" id="nav" aria-label="Menu utama"></nav>
+    <div class="helpdesk"><div class="ic">✦</div><div><b>SPADAKes Helpdesk</b>Hubungi administrator jika ada kendala akses.</div></div>
+    <div class="side-user">
+      <div class="av" id="sideAv">AS</div>
+      <div style="flex:1;min-width:0"><b id="sideName">-</b><small id="sideRole">-</small></div>
+      <button class="icon-btn" id="btnLogout" title="Keluar" aria-label="Keluar"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4h4v16h-4M10 17l5-5-5-5M15 12H3"/></svg></button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <button class="dots-btn" id="menuBtn" aria-label="Buka / tutup menu" title="Buka / tutup menu" aria-expanded="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+      </button>
+      <div class="top-t"><div class="crumb">SPADAKes <span>/</span> <b id="crumb">Dashboard</b></div></div>
+      <div class="sp"></div>
+      <div class="datechip"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span id="today"></span></div>
+      <button class="btn sq" id="btnRefresh" title="Muat ulang data" aria-label="Muat ulang data"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg></button>
+      <div class="umenu">
+        <button class="userchip" id="userBtn" aria-haspopup="true" aria-expanded="false">
+          <div class="av" id="topAv">AS</div>
+          <div class="uc-t"><b id="topName">-</b><small id="topRole">-</small></div>
+          <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="umenu-pop hidden" id="userMenu" role="menu">
+          <button id="btnPass" role="menuitem"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Ganti Password</button>
+          <button id="btnInstall" class="hidden" role="menuitem"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg>Instal Aplikasi</button>
+          <button id="btnLogout2" role="menuitem" class="danger"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4h4v16h-4M10 17l5-5-5-5M15 12H3"/></svg>Keluar</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="filters" id="filters">
+      <div class="f-head">
+        <span class="ttl">FILTER DATA</span>
+        <span class="f-sum" id="fSum"></span>
+        <button class="btn sm f-tg" id="fToggle" type="button" aria-expanded="false">Ubah filter</button>
+      </div>
+      <div class="f-grid" id="fGrid">
+        <div class="fl"><label for="fTa">Tahun Anggaran</label><select class="sel" id="fTa"></select></div>
+        <div class="fl"><label for="fPer">Periode</label><select class="sel" id="fPer"></select></div>
+        <div class="fl" id="flJenis"><label for="fJenis">Jenis Anggaran</label><select class="sel" id="fJenis"><option value="">Semua Anggaran</option><option value="APBD">APBD</option><option value="BLUD">BLUD</option></select></div>
+        <div class="fl" id="flDasar"><label for="fDasar">Dasar Pagu APBD</label><select class="sel" id="fDasar"><option value="perubahan">Pagu Perubahan</option><option value="murni">Pagu Murni</option></select></div>
+        <div class="fl" id="flUnit"><label for="fUnit">Unit Kerja</label><select class="sel" id="fUnit"></select></div>
+      </div>
+    </div>
+    <div class="content" id="content"></div>
+  </main>
+</section>
+
+<div id="offline" class="offline hidden">Tidak ada koneksi internet — data terbaru tidak dapat dimuat.</div>
+<div id="toasts"></div>
+<div id="loader" class="loading hidden"></div>
+<div id="tip" class="tip hidden"></div>
+<script src="js/config.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

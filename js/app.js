@@ -2,6 +2,21 @@
  * SPADAKes - Frontend
  * ===================================================================== */
 var S = { token: null, boot: null, page: 'dashboard', f: { ta: null, periode: null, jenis: '', dasar: 'perubahan', unit: 'ALL' } };
+var MAXW = 53;
+function wkStart(ta, w) { var j = new Date(ta, 0, 1), dow = (j.getDay() + 6) % 7; return new Date(ta, 0, 1 - dow + (w - 1) * 7); }
+function wkRange(ta, w) { var s = wkStart(ta, w), e = new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6), a = new Date(ta, 0, 1), z = new Date(ta, 11, 31); if (s < a) s = a; if (e > z) e = z; return { s: s, e: e }; }
+function wkCount(ta) { var n = MAXW, z = new Date(ta, 11, 31); while (n > 1 && wkStart(ta, n) > z) n--; return n; }
+var ABR = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+function wkSpan(ta, w) { var r = wkRange(ta, w), a = r.s, e = r.e; return a.getMonth() === e.getMonth() ? a.getDate() + '–' + e.getDate() + ' ' + ABR[e.getMonth()] : a.getDate() + ' ' + ABR[a.getMonth()] + ' – ' + e.getDate() + ' ' + ABR[e.getMonth()]; }
+function tglOf(ta, w) { // tanggal data khusus periode (YYYY-MM-DD) bila diatur admin
+  var ps = (S.boot && S.boot.periods && S.boot.periods[ta]) || [];
+  for (var i = 0; i < ps.length; i++) if (ps[i].periode === w && ps[i].tgl) { var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ps[i].tgl); if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])); }
+  return null;
+}
+function perName(ta, w) { var o = tglOf(ta, w); return o ? 'Minggu ' + w + ' (s/d ' + o.getDate() + ' ' + ABR[o.getMonth()] + ' ' + o.getFullYear() + ')' : 'Minggu ' + w + ' (' + wkSpan(ta, w) + ' ' + ta + ')'; }   // Minggu 40 (21–27 Sep 2026)
+function perOpt(ta, w) { var o = tglOf(ta, w); return o ? 'Minggu ' + w + ' · s/d ' + o.getDate() + ' ' + ABR[o.getMonth()] : 'Minggu ' + w + ' · ' + wkSpan(ta, w); }
+function perEnd(ta, w) { var e = tglOf(ta, w) || wkRange(ta, w).e; return e.getDate() + ' ' + BULAN[e.getMonth()] + ' ' + e.getFullYear(); }
+function weekList(ta) { var a = []; for (var i = 1; i <= wkCount(ta); i++) a.push(i); return a; }
 var BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 var $ = function (s, r) { return (r || document).querySelector(s); };
 var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
@@ -136,7 +151,7 @@ function ic(n, s) { return '<svg width="' + (s || 17) + '" height="' + (s || 17)
 var PAGES = {
   dashboard: { t: 'Dashboard', crumb: 'Dashboard Pengendalian Deviasi Anggaran', ic: 'dash', grp: 'MENU UTAMA', filters: ['ta', 'per', 'jenis', 'dasar', 'unit'] },
   struktur: { t: 'Struktur Anggaran', crumb: 'Struktur Anggaran Bertingkat per Unit', ic: 'tree', grp: 'MENU UTAMA', filters: ['ta', 'per', 'jenis', 'dasar', 'unit'] },
-  importPrev: { t: 'Import Data Bulan Sebelumnya', crumb: 'Import Data Bulan Sebelumnya', ic: 'imp', grp: 'MENU UTAMA', filters: ['ta', 'unit'], write: true },
+  importPrev: { t: 'Import Data Periode Sebelumnya', crumb: 'Import Data Periode Sebelumnya', ic: 'imp', grp: 'MENU UTAMA', filters: ['ta', 'unit'], write: true },
   pembanding: { t: 'Pembanding', crumb: 'Pembanding Data Anggaran', ic: 'cmp', grp: 'MENU UTAMA', filters: ['ta', 'jenis', 'unit'] },
   pad: { t: 'Pendapatan PAD', crumb: 'Pendapatan Asli Daerah (PAD)', ic: 'pad', grp: 'MENU UTAMA', filters: ['ta', 'per', 'unit'] },
   rekap: { t: 'Rekapitulasi', crumb: 'Rekapitulasi Realisasi Anggaran', ic: 'rek', grp: 'MENU UTAMA', filters: ['ta', 'per', 'dasar', 'unit'] },
@@ -199,7 +214,7 @@ function updateFSum() {
   var p = PAGES[S.page]; if (!p || !p.filters.length) return;
   var a = [];
   if (p.filters.indexOf('ta') >= 0) a.push('TA ' + S.f.ta);
-  if (p.filters.indexOf('per') >= 0) a.push(BULAN[S.f.periode - 1]);
+  if (p.filters.indexOf('per') >= 0) a.push('Minggu ' + S.f.periode);
   if (p.filters.indexOf('jenis') >= 0 && S.f.jenis) a.push(S.f.jenis);
   if (p.filters.indexOf('dasar') >= 0) a.push(S.f.dasar === 'murni' ? 'Pagu Murni' : 'Pagu Perubahan');
   if (p.filters.indexOf('unit') >= 0) a.push(S.f.unit === 'ALL' ? 'Semua unit' : unitShort(S.f.unit));
@@ -236,9 +251,9 @@ function fillPeriod(keep) {
   var ps = periodsFor(S.f.ta), has = {};
   ps.forEach(function (p) { has[p.periode] = p; });
   if (!keep || !S.f.periode) S.f.periode = latestPeriod(S.f.ta);
-  $('#fPer').innerHTML = BULAN.map(function (b, i) {
-    var p = has[i + 1], tag = p ? (p.status === 'Terkunci' ? ' 🔒' : (p.hasData ? ' ●' : ' ○')) : '';
-    return '<option value="' + (i + 1) + '">' + b + tag + '</option>';
+  $('#fPer').innerHTML = weekList(S.f.ta).map(function (w) {
+    var p = has[w], tag = p ? (p.status === 'Terkunci' ? ' 🔒' : (p.hasData ? ' ●' : ' ○')) : '';
+    return '<option value="' + w + '">' + perOpt(S.f.ta, w) + tag + '</option>';
   }).join('');
   $('#fPer').value = S.f.periode;
 }
@@ -313,14 +328,15 @@ function chartBars(el, o) { // o:{labels, series:[{name,color,values}], height}
   var y = function (v) { return pt + (H - pt - pb) * (1 - v / top); };
   var s = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" height="' + H + '">';
   for (var t = 0; t <= top + 1; t += step) s += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + y(t) + '" y2="' + y(t) + '" stroke="#ece9e0" ' + (t ? 'stroke-dasharray="3 4"' : '') + '/><text x="' + (pl - 10) + '" y="' + (y(t) + 4) + '" text-anchor="end" font-size="11" fill="#7a8781">' + short(t) + '</text>';
+  var evl = Math.max(1, Math.ceil(o.labels.length / Math.max(1, Math.floor((W - pl - pr) / 34))));
   o.labels.forEach(function (lb, i) {
     var cx = pl + cw * i + cw / 2, tot = o.series.length * bw + (o.series.length - 1) * 4;
     o.series.forEach(function (sr, j) {
       var v = sr.values[i]; if (v == null) return;
       var x = cx - tot / 2 + j * (bw + 4), yy = y(v), h = Math.max(1, H - pb - yy);
-      s += '<rect x="' + x + '" y="' + yy + '" width="' + bw + '" height="' + h + '" rx="4" fill="' + sr.color + '" data-tip="<b>' + esc(lb) + '</b><br>' + esc(sr.name) + ': ' + rp(v) + (sr.extra ? '<br>' + sr.extra[i] : '') + '"/>';
+      s += '<rect x="' + x + '" y="' + yy + '" width="' + bw + '" height="' + h + '" rx="4" fill="' + sr.color + '" data-tip="<b>' + esc(o.full ? o.full[i] : lb) + '</b><br>' + esc(sr.name) + ': ' + rp(v) + (sr.extra ? '<br>' + sr.extra[i] : '') + '"/>';
     });
-    s += '<text x="' + cx + '" y="' + (H - 12) + '" text-anchor="middle" font-size="11" fill="#7a8781">' + esc(lb) + '</text>';
+    if (i % evl === 0) s += '<text x="' + cx + '" y="' + (H - 12) + '" text-anchor="middle" font-size="11" fill="#7a8781">' + esc(lb) + '</text>';
   });
   el.innerHTML = s + '</svg>'; bindTips(el);
 }
@@ -340,7 +356,7 @@ function chartDevBars(el, items, amb) { // horizontal diverging bars
   });
   el.innerHTML = s + '</svg>'; bindTips(el);
 }
-function chartLine(el, labels, vals, amb) {
+function chartLine(el, labels, vals, amb, full) {
   var pts = vals.map(function (v, i) { return v == null ? null : { i: i, v: v }; }).filter(Boolean);
   if (!pts.length) { el.innerHTML = '<div class="empty"><b>Belum ada data</b></div>'; return; }
   var W = el.clientWidth || 400, H = 250, pl = 44, pr = 14, pt = 14, pb = 30;
@@ -349,9 +365,10 @@ function chartLine(el, labels, vals, amb) {
   var s = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" height="' + H + '">';
   s += '<rect x="' + pl + '" y="' + Y(amb) + '" width="' + (W - pl - pr) + '" height="' + (Y(-amb) - Y(amb)) + '" fill="#e6f4ec" opacity=".75"/>';
   [lim, amb, 0, -amb, -lim].forEach(function (v) { s += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="' + (v ? '#e3dfd4' : '#9aa6a0') + '" ' + (Math.abs(v) === amb ? 'stroke-dasharray="4 4"' : '') + '/><text x="' + (pl - 8) + '" y="' + (Y(v) + 4) + '" font-size="10.5" fill="#7a8781" text-anchor="end">' + v + '%</text>'; });
-  labels.forEach(function (l, i) { s += '<text x="' + X(i) + '" y="' + (H - 9) + '" font-size="10.5" fill="#7a8781" text-anchor="middle">' + l + '</text>'; });
+  var ev = Math.max(1, Math.ceil(labels.length / Math.max(1, Math.floor((W - pl - pr) / 34))));
+  labels.forEach(function (l, i) { if (i % ev) return; s += '<text x="' + X(i) + '" y="' + (H - 9) + '" font-size="10.5" fill="#7a8781" text-anchor="middle">' + l + '</text>'; });
   s += '<polyline fill="none" stroke="#245c50" stroke-width="2.5" stroke-linejoin="round" points="' + pts.map(function (p) { return X(p.i) + ',' + Y(p.v); }).join(' ') + '"/>';
-  pts.forEach(function (p) { var bad = Math.abs(p.v) > amb; s += '<circle cx="' + X(p.i) + '" cy="' + Y(p.v) + '" r="6" fill="' + (bad ? '#c03a2b' : '#1e8a5a') + '" stroke="#fff" stroke-width="2.5" data-tip="<b>' + BULAN[p.i] + '</b><br>Deviasi: ' + pct(p.v) + '"/>'; });
+  pts.forEach(function (p) { var bad = Math.abs(p.v) > amb; s += '<circle cx="' + X(p.i) + '" cy="' + Y(p.v) + '" r="6" fill="' + (bad ? '#c03a2b' : '#1e8a5a') + '" stroke="#fff" stroke-width="2.5" data-tip="<b>' + esc((full || labels)[p.i]) + '</b><br>Deviasi: ' + pct(p.v) + '"/>'; });
   el.innerHTML = s + '</svg>'; bindTips(el);
 }
 function chartDonut(el, parts, center) {
@@ -380,7 +397,7 @@ async function pgDashboard(c) {
   c.innerHTML =
     '<div class="pg-head"><div><div class="eyebrow">Executive Overview</div><h2>Dashboard Pengendalian Deviasi Anggaran</h2></div><div class="sp"></div>' +
     '<span class="pill gold">Ambang deviasi ±' + amb + '%</span></div>' +
-    '<div class="ctx"><span><b>' + esc(scopeText()) + '</b> · Tahun Anggaran ' + d.ta + ' · Status s/d <b>' + BULAN[d.periode - 1] + '</b> · Dasar: ' + dasarText() + (S.f.jenis ? ' · Jenis: ' + S.f.jenis : '') + ' · ' + d.unitFilled + '/' + nU + ' unit sudah mengisi</span>' +
+    '<div class="ctx"><span><b>' + esc(scopeText()) + '</b> · Tahun Anggaran ' + d.ta + ' · Status s/d <b>' + perName(d.ta, d.periode) + '</b> · Dasar: ' + dasarText() + (S.f.jenis ? ' · Jenis: ' + S.f.jenis : '') + ' · ' + d.unitFilled + '/' + nU + ' unit sudah mengisi</span>' +
     '<span class="legend-dev"><span><i class="dot" style="background:var(--ok)"></i>Deviasi ≤ ' + amb + '%</span><span><i class="dot" style="background:var(--bad)"></i>Deviasi &gt; ' + amb + '%</span></span></div>' +
     '<div class="kpis">' +
     kpi('Total Pagu Dasar', k.pagu, 'APBD ' + short(k.pagu_apbd) + ' · BLUD ' + short(k.pagu_blud), 'wallet', '#eef5f2', 'var(--forest-600)') +
@@ -389,18 +406,18 @@ async function pgDashboard(c) {
     kpi('Pendapatan PAD', d.pad.real, d.pad.target ? pct(pctOf(d.pad.real, d.pad.target)) + ' dari target ' + short(d.pad.target) : 'Belum ada target PAD', 'pad', '#f2eef8', '#6c4fa3') +
     '<div class="card kpi ' + (bad ? 'dev-bad' : 'dev-ok') + '" style="--tint:' + (bad ? '#fbe9e6' : '#e6f4ec') + ';--tc:' + (bad ? 'var(--bad)' : 'var(--ok)') + '"><span class="ic">' + ic('swap', 20) + '</span><small>Deviasi</small><div class="v num">' + pct(k.dev) + '</div><div class="full">Real ' + pct(k.realPct) + ' − Angkas ' + pct(k.angkasPct) + '</div><div class="s">' + (bad ? 'Melebihi' : 'Dalam') + ' ambang ' + amb + '%</div></div>' +
     '</div>' +
-    '<div class="grid2"><div class="card"><div class="card-h"><div><h3>Tren Realisasi &amp; Anggaran Kas</h3><p>Nilai kumulatif per bulan pada TA ' + d.ta + '</p></div><div class="sp"></div><div class="lgd"><span><i style="background:#245c50"></i>Realisasi</span><span><i style="background:#d8bb7f"></i>Angkas s/d</span></div></div><div class="card-b"><div id="chTrend"></div></div></div>' +
-    '<div class="card"><div class="card-h"><div><h3>Status Unit Kerja</h3><p>Pemantauan pengisian ' + BULAN[d.periode - 1] + '</p></div><div class="sp"></div><span class="pill mut">' + nU + ' unit</span></div><div class="card-b ulist">' +
+    '<div class="grid2"><div class="card"><div class="card-h"><div><h3>Tren Realisasi &amp; Anggaran Kas</h3><p>Nilai kumulatif per minggu pada TA ' + d.ta + '</p></div><div class="sp"></div><div class="lgd"><span><i style="background:#245c50"></i>Realisasi</span><span><i style="background:#d8bb7f"></i>Angkas s/d</span></div></div><div class="card-b"><div id="chTrend"></div></div></div>' +
+    '<div class="card"><div class="card-h"><div><h3>Status Unit Kerja</h3><p>Pemantauan pengisian ' + perName(d.ta, d.periode) + '</p></div><div class="sp"></div><span class="pill mut">' + nU + ' unit</span></div><div class="card-b ulist">' +
     d.perUnit.map(function (u) {
       return '<div class="uitem"><div class="uic">' + ic('home', 16) + '</div><div style="min-width:0"><b>' + esc(u.nama) + '</b><small>' + (u.filled ? 'Realisasi ' + pct(u.realPct) + ' · Angkas ' + pct(u.angkasPct) : 'Belum mengisi anggaran pada periode ini.') + '</small></div>' +
         '<div class="r"><span class="pill ' + (u.filled ? 'ok' : 'bad') + '">' + (u.filled ? 'SUDAH MENGISI' : 'BELUM MENGISI') + '</span>' + (u.filled ? devPill(u.dev) : '<small>0,00%</small>') + '</div></div>';
     }).join('') + '</div></div></div>' +
     '<div class="grid3"><div class="card"><div class="card-h"><div><h3>Deviasi per Unit Kerja</h3><p>Area hijau = dalam ambang ±' + amb + '%</p></div></div><div class="card-b"><div id="chDev"></div></div></div>' +
-    '<div class="card"><div class="card-h"><div><h3>Tren Deviasi Bulanan</h3><p>% Realisasi − % Angkas Kas</p></div></div><div class="card-b"><div id="chLine"></div></div></div>' +
+    '<div class="card"><div class="card-h"><div><h3>Tren Deviasi Mingguan</h3><p>% Realisasi − % Angkas Kas</p></div></div><div class="card-b"><div id="chLine"></div></div></div>' +
     '<div class="card"><div class="card-h"><div><h3>Komposisi Pagu &amp; PAD</h3><p>APBD vs BLUD, capaian pendapatan</p></div></div><div class="card-b"><div style="display:flex;align-items:center;gap:16px"><div id="chDonut"></div><div class="lgd" style="flex-direction:column;align-items:flex-start;gap:10px"><span><i style="background:#2f6fb0"></i>APBD<br><b class="num">' + short(k.pagu_apbd) + '</b></span><span><i style="background:#2a8a85"></i>BLUD<br><b class="num">' + short(k.pagu_blud) + '</b></span></div></div>' +
     '<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:7px"><b>Realisasi PAD</b><span class="num">' + short(d.pad.real) + ' / ' + short(d.pad.target) + '</span></div><div class="progress"><i style="width:' + Math.min(100, pctOf(d.pad.real, d.pad.target)) + '%;background:linear-gradient(90deg,#c8a45c,#d8bb7f)"></i></div>' +
     '<div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-top:6px"><span>Capaian ' + pct(pctOf(d.pad.real, d.pad.target)) + '</span><span>Angkas ' + pct(pctOf(d.pad.angkas, d.pad.target)) + '</span></div></div></div></div></div>' +
-    '<div class="card"><div class="card-h"><div><h3>Kegiatan dengan Deviasi Terbesar</h3><p>Prioritas pengendalian periode ' + BULAN[d.periode - 1] + '</p></div></div><div class="card-b" style="padding-top:8px">' +
+    '<div class="card"><div class="card-h"><div><h3>Kegiatan dengan Deviasi Terbesar</h3><p>Prioritas pengendalian periode ' + perName(d.ta, d.periode) + '</p></div></div><div class="card-b" style="padding-top:8px">' +
     (d.topDev.length ? '<table class="t"><thead><tr><th class="l">Unit</th><th class="l">Kode</th><th class="l">Kegiatan</th><th>Pagu</th><th>Realisasi</th><th>% Real</th><th>% Angkas</th><th class="c">Deviasi</th></tr></thead><tbody>' +
       d.topDev.map(function (x) { return '<tr><td class="l">' + esc(x.unit) + '</td><td class="l num">' + esc(x.kode) + '</td><td class="l" style="white-space:normal;min-width:260px">' + esc(x.uraian) + '</td><td>' + rp(x.pagu) + '</td><td>' + rp(x.real) + '</td><td>' + pct(x.realPct) + '</td><td>' + pct(x.angkasPct) + '</td><td class="c">' + devPill(x.dev) + '</td></tr>'; }).join('') + '</tbody></table>'
       : '<div class="empty"><b>Belum ada data</b></div>') + '</div></div>';
@@ -409,12 +426,15 @@ async function pgDashboard(c) {
 function kpi(t, v, s, icn, tint, tc) { return '<div class="card kpi" style="--tint:' + tint + ';--tc:' + tc + '"><span class="ic">' + ic(icn, 20) + '</span><small>' + t + '</small><div class="v num">Rp ' + short(v) + '</div><div class="full" title="' + esc(rp(v)) + '">' + rp(v) + '</div><div class="s">' + s + '</div></div>'; }
 function drawDash() {
   if (!_dash || S.page !== 'dashboard' || !$('#chTrend')) return;
-  var d = _dash, ab = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-  chartBars($('#chTrend'), { labels: ab, height: 300, series: [
-    { name: 'Realisasi', color: '#245c50', values: d.months.map(function (m) { return m.has ? m.real : null; }), extra: d.months.map(function (m) { return m.has ? 'Realisasi ' + pct(m.realPct) + ' · Deviasi ' + pct(m.dev) : ''; }) },
-    { name: 'Angkas s/d', color: '#d8bb7f', values: d.months.map(function (m) { return m.has ? m.angkas : null; }) }] });
+  var d = _dash, W = d.months, hi = 0;
+  W.forEach(function (m) { if (m.has) hi = Math.max(hi, m.periode); }); hi = Math.max(hi, d.periode, 8);
+  W = W.filter(function (m) { return m.periode <= Math.min(hi + 1, W.length); });
+  var ab = W.map(function (m) { return 'M' + m.periode; }), full = W.map(function (m) { return perName(d.ta, m.periode); });
+  chartBars($('#chTrend'), { labels: ab, full: full, height: 300, series: [
+    { name: 'Realisasi', color: '#245c50', values: W.map(function (m) { return m.has ? m.real : null; }), extra: W.map(function (m) { return m.has ? 'Realisasi ' + pct(m.realPct) + ' · Deviasi ' + pct(m.dev) : ''; }) },
+    { name: 'Angkas s/d', color: '#d8bb7f', values: W.map(function (m) { return m.has ? m.angkas : null; }) }] });
   chartDevBars($('#chDev'), d.perUnit.filter(function (u) { return u.filled; }).map(function (u) { return { label: u.singkatan, full: u.nama, value: u.dev, extra: 'Realisasi ' + pct(u.realPct) + ' · Angkas ' + pct(u.angkasPct) }; }), d.ambang);
-  chartLine($('#chLine'), ab, d.months.map(function (m) { return m.has ? m.dev : null; }), d.ambang);
+  chartLine($('#chLine'), ab, W.map(function (m) { return m.has ? m.dev : null; }), d.ambang, full);
   chartDonut($('#chDonut'), [{ label: 'APBD', value: d.kpi.pagu_apbd, color: '#2f6fb0' }, { label: 'BLUD', value: d.kpi.pagu_blud, color: '#2a8a85' }], ['Total Pagu', short(d.kpi.pagu)]);
 }
 var _rz; window.addEventListener('resize', function () { clearTimeout(_rz); _rz = setTimeout(drawDash, 200); });
@@ -437,15 +457,14 @@ async function pgStruktur(c) {
   });
   var admin = S.boot.user.role === 'Admin', anyW = Object.keys(d.writable).some(function (k) { return d.writable[k]; });
   if (!anyW) ST.mode = 'view';
-  var lastDay = new Date(d.ta, d.periode, 0).getDate();
   c.innerHTML =
     '<div class="pg-head"><div><div class="eyebrow">Data Anggaran</div><h2>Struktur Anggaran Bertingkat per Unit</h2></div><div class="sp"></div>' +
     (admin ? '<button class="btn" id="btPer">' + ic('cal', 15) + 'Periode &amp; TA</button>' : '') +
     (anyW ? '<button class="btn pri" id="btSave" disabled>' + ic('save', 15) + 'Simpan Perubahan</button>' : '') +
     '<button class="btn gold" id="btXls">' + ic('xls', 15) + 'Ekspor Excel</button></div>' +
     '<div class="card">' +
-    (d.status === 'Terkunci' ? '<div class="lockbar">' + ic('lock', 15) + 'Periode ' + BULAN[d.periode - 1] + ' ' + d.ta + ' terkunci' + (admin ? ' — Anda tetap dapat mengubah sebagai administrator.' : ' — data hanya dapat dilihat.') + '</div>' : '') +
-    '<div class="card-h"><div><h3>Struktur Anggaran</h3><p>' + (S.f.jenis || 'Semua Anggaran') + ' · ' + dasarText() + ' · Status s/d ' + lastDay + ' ' + BULAN[d.periode - 1] + ' ' + d.ta + '</p></div><div class="sp"></div>' +
+    (d.status === 'Terkunci' ? '<div class="lockbar">' + ic('lock', 15) + 'Periode ' + perName(d.ta, d.periode) + ' terkunci' + (admin ? ' — Anda tetap dapat mengubah sebagai administrator.' : ' — data hanya dapat dilihat.') + '</div>' : '') +
+    '<div class="card-h"><div><h3>Struktur Anggaran</h3><p>' + (S.f.jenis || 'Semua Anggaran') + ' · ' + dasarText() + ' · Status s/d ' + perEnd(d.ta, d.periode) + '</p></div><div class="sp"></div>' +
     '<div class="search">' + ic('search', 15) + '<input id="stQ" placeholder="Cari kode, program, kegiatan, sub kegiatan…" value="' + esc(ST.q) + '"></div>' +
     '<button class="btn" id="btOpen">Buka Semua</button><button class="btn" id="btClose">Tutup Semua</button></div>' +
     '<div class="mode-bar"><span style="font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--muted)">MODE PENGISIAN</span><div class="seg" id="seg">' +
@@ -543,9 +562,9 @@ function rowHtml(id) {
 
 function drawStruktur() {
   recalc();
-  var d = ST.data, ids = visibleIds(), mode = ST.mode, mon = BULAN[d.periode - 1].toUpperCase();
+  var d = ST.data, ids = visibleIds(), mode = ST.mode, mon = 'MINGGU ' + d.periode;
   $$('#seg button').forEach(function (b) { b.classList.toggle('on', b.dataset.m === mode); });
-  $('#modeHint').textContent = { murni: 'Isi kolom biru: pagu murni APBD (dan pagu BLUD untuk sub kegiatan BLUD).', perub: 'Isi kolom emas: pagu perubahan APBD. Kosongkan bila tidak berubah.', real: 'Isi realisasi dan anggaran kas kumulatif s/d ' + BULAN[d.periode - 1] + '.', view: 'Mode baca — tidak ada isian.' }[mode];
+  $('#modeHint').textContent = { murni: 'Isi kolom biru: pagu murni APBD (dan pagu BLUD untuk sub kegiatan BLUD).', perub: 'Isi kolom emas: pagu perubahan APBD. Kosongkan bila tidak berubah.', real: 'Isi realisasi dan anggaran kas kumulatif s/d ' + perName(d.ta, d.periode) + '.', view: 'Mode baca — tidak ada isian.' }[mode];
   var tb = $('#st');
   tb.className = 'st m-' + (mode === 'perub' ? 'perub' : mode);
   var head = '<colgroup><col class="c-u"><col class="c-j"><col class="c-n"><col class="c-n"><col class="c-n"><col class="c-n"><col class="c-n"><col class="c-n"><col class="c-p"><col class="c-n"><col class="c-p"><col class="c-d"><col class="c-a"></colgroup>' +
@@ -675,26 +694,28 @@ function download(b64, name) {
 function periodModal() {
   var ta = Number(S.f.ta), ps = periodsFor(ta), has = {};
   ps.forEach(function (p) { has[p.periode] = p; });
-  var free = BULAN.map(function (b, i) { return i + 1; }).filter(function (i) { return !has[i]; });
+  var free = weekList(ta).filter(function (i) { return !has[i]; });
+  var lastW = ps.reduce(function (m, p) { return Math.max(m, p.periode); }, 0), nextW = free.filter(function (i) { return i > lastW; })[0] || free[0];
   var body = '<div class="tabs"><button class="on" data-t="p">Periode Baru</button><button data-t="s">Status Periode</button><button data-t="ta">Tahun Anggaran Baru</button></div>' +
     '<div data-pane="p"><div class="row2"><div class="fg"><label>Tahun Anggaran</label><input class="txt" value="' + ta + '" disabled></div>' +
-    '<div class="fg"><label>Bulan / Periode</label><select class="sel" id="pBul">' + free.map(function (i) { return '<option value="' + i + '">' + BULAN[i - 1] + '</option>'; }).join('') + '</select></div></div>' +
-    '<div class="row2"><div class="fg"><label>Salin data dari</label><select class="sel" id="pFrom"><option value="">— Kosong (tidak menyalin) —</option>' + ps.map(function (p) { return '<option value="' + p.periode + '">' + BULAN[p.periode - 1] + '</option>'; }).join('') + '</select></div>' +
+    '<div class="fg"><label>Minggu / Periode</label><select class="sel" id="pBul">' + free.map(function (i) { return '<option value="' + i + '"' + (i === nextW ? ' selected' : '') + '>' + perOpt(ta, i) + '</option>'; }).join('') + '</select></div></div>' +
+    '<div class="fg"><label>Tanggal data / laporan <small style="color:var(--muted);font-weight:600">(opsional — kosong = akhir minggu)</small></label><input class="txt" type="date" id="pTgl"></div>' +
+    '<div class="row2"><div class="fg"><label>Salin data dari</label><select class="sel" id="pFrom"><option value="">— Kosong (tidak menyalin) —</option>' + ps.map(function (p) { return '<option value="' + p.periode + '">' + perOpt(ta, p.periode) + '</option>'; }).join('') + '</select></div>' +
     '<div class="fg"><label>Yang disalin</label><select class="sel" id="pMode"><option value="pagu">Pagu saja (realisasi &amp; angkas = 0)</option><option value="all">Pagu + realisasi + angkas</option></select></div></div>' +
     '<div class="hint" style="font-size:12px;color:var(--muted)">Struktur program/kegiatan/sub kegiatan berlaku untuk seluruh periode dalam satu TA.</div></div>' +
-    '<div data-pane="s" class="hidden"><table class="t"><thead><tr><th class="l">Periode</th><th class="l">Data</th><th class="l">Status</th><th class="c">Aksi</th></tr></thead><tbody>' +
-    (ps.length ? ps.map(function (p) { return '<tr><td class="l"><b>' + BULAN[p.periode - 1] + ' ' + ta + '</b></td><td class="l">' + (p.hasData ? '<span class="pill ok">ADA DATA</span>' : '<span class="pill mut">KOSONG</span>') + '</td><td class="l">' + (p.status === 'Terkunci' ? '<span class="pill bad">TERKUNCI</span>' : '<span class="pill ok">TERBUKA</span>') + '</td><td class="c"><button class="btn sm" data-lock="' + p.periode + '" data-st="' + (p.status === 'Terkunci' ? 'Terbuka' : 'Terkunci') + '">' + (p.status === 'Terkunci' ? 'Buka Kunci' : 'Kunci') + '</button></td></tr>'; }).join('') : '<tr><td colspan="4"><div class="empty">Belum ada periode.</div></td></tr>') +
+    '<div data-pane="s" class="hidden"><table class="t"><thead><tr><th class="l">Periode</th><th class="l">Tanggal Data</th><th class="l">Data</th><th class="l">Status</th><th class="c">Aksi</th></tr></thead><tbody>' +
+    (ps.length ? ps.map(function (p) { return '<tr><td class="l"><b>Minggu ' + p.periode + '</b><br><small style="color:var(--muted)">' + wkSpan(ta, p.periode) + '</small></td><td class="l"><input class="txt" type="date" style="height:38px;min-width:150px" data-tgl="' + p.periode + '" value="' + esc(p.tgl || '') + '"' + (S.boot.user.role === 'Admin' ? '' : ' disabled') + '></td><td class="l">' + (p.hasData ? '<span class="pill ok">ADA DATA</span>' : '<span class="pill mut">KOSONG</span>') + '</td><td class="l">' + (p.status === 'Terkunci' ? '<span class="pill bad">TERKUNCI</span>' : '<span class="pill ok">TERBUKA</span>') + '</td><td class="c"><button class="btn sm" data-lock="' + p.periode + '" data-st="' + (p.status === 'Terkunci' ? 'Terbuka' : 'Terkunci') + '">' + (p.status === 'Terkunci' ? 'Buka Kunci' : 'Kunci') + '</button></td></tr>'; }).join('') : '<tr><td colspan="5"><div class="empty">Belum ada periode.</div></td></tr>') +
     '</tbody></table><div class="hint" style="font-size:12px;color:var(--muted);margin-top:10px">Periode terkunci hanya dapat diubah oleh administrator.</div></div>' +
     '<div data-pane="ta" class="hidden"><div class="row2"><div class="fg"><label>Tahun anggaran baru</label><input class="txt" id="tNew" type="number" value="' + ((S.boot.tas[0] || ta) + 1) + '"></div>' +
     '<div class="fg"><label>Salin struktur dari TA</label><select class="sel" id="tFrom"><option value="">— Kosong —</option>' + S.boot.tas.map(function (t) { return '<option value="' + t + '">' + t + '</option>'; }).join('') + '</select></div></div>' +
-    '<label class="chk"><input type="checkbox" id="tPagu" checked> Salin pagu terakhir sebagai pagu murni awal (Januari)</label></div>';
+    '<label class="chk"><input type="checkbox" id="tPagu" checked> Salin pagu terakhir sebagai pagu murni awal (Minggu 1)</label></div>';
   var tab = 'p';
   var mm = modal({ title: 'Periode & Tahun Anggaran', wide: true, body: body, buttons: [{ label: 'Tutup' }, { label: 'Buat', cls: 'pri', click: async function (close, m, btn) {
     busy(btn, true);
     try {
       if (tab === 'p') {
-        if (!$('#pBul', m).value) throw new Error('Semua bulan sudah dibuat.');
-        var r = await call('createPeriod', { ta: ta, periode: Number($('#pBul', m).value), copyFrom: Number($('#pFrom', m).value || 0), copyMode: $('#pMode', m).value });
+        if (!$('#pBul', m).value) throw new Error('Semua minggu sudah dibuat.');
+        var r = await call('createPeriod', { ta: ta, periode: Number($('#pBul', m).value), copyFrom: Number($('#pFrom', m).value || 0), copyMode: $('#pMode', m).value, tgl: $('#pTgl', m).value || '' });
         S.f.periode = Number($('#pBul', m).value); toast('Periode dibuat' + (r.copied ? ' · ' + r.copied + ' sub kegiatan disalin' : '') + '.');
       } else if (tab === 'ta') {
         var t = Number($('#tNew', m).value), r2 = await call('createTA', { ta: t, fromTa: Number($('#tFrom', m).value || 0), copyPagu: $('#tPagu', m).checked });
@@ -704,21 +725,22 @@ function periodModal() {
     } catch (e) { fail(e); busy(btn, false); }
   } }], onOpen: function (m) {
     $$('.tabs button', m).forEach(function (b) { b.onclick = function () { tab = b.dataset.t; $$('.tabs button', m).forEach(function (x) { x.classList.toggle('on', x === b); }); $$('[data-pane]', m).forEach(function (p) { p.classList.toggle('hidden', p.dataset.pane !== tab); }); $('.modal-f .pri', m).classList.toggle('hidden', tab === 's'); }; });
+    $$('[data-tgl]', m).forEach(function (i) { i.onchange = async function () { try { await call('setPeriodDate', { ta: ta, periode: Number(i.dataset.tgl), tgl: i.value || '' }); await refreshBoot(); toast('Tanggal data Minggu ' + i.dataset.tgl + ' disimpan.'); fillPeriod(true); } catch (e) { fail(e); } }; });
     $$('[data-lock]', m).forEach(function (b) { b.onclick = async function () { try { await call('setPeriodStatus', { ta: ta, periode: Number(b.dataset.lock), status: b.dataset.st }); mm.close(); await refreshBoot(); toast('Status periode diperbarui.'); render(); periodModal(); } catch (e) { fail(e); } }; });
   } });
 }
 
 /* ===================================================================== *
- *  IMPORT DATA BULAN SEBELUMNYA
+ *  IMPORT DATA PERIODE SEBELUMNYA
  * ===================================================================== */
 function pgImport(c) {
   var ta = Number(S.f.ta), ps = periodsFor(ta).filter(function (p) { return p.hasData; });
-  var last = ps.length ? ps[ps.length - 1].periode : 1, to = Math.min(12, last + 1);
-  c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Pengisian Cepat</div><h2>Import Data Bulan Sebelumnya</h2></div></div>' +
-    '<div class="card"><div class="card-h"><div><h3>Salin data periode</h3><p>Salin pagu (dan bila perlu realisasi &amp; anggaran kas) dari bulan sebelumnya ke bulan tujuan untuk ' + esc(scopeText()) + ' · TA ' + ta + '.</p></div></div><div class="card-b">' +
-    '<div class="steps"><div class="stepbox"><small>SUMBER</small><div class="fg" style="margin:10px 0 0"><select class="sel" id="iFrom" style="width:100%">' + (ps.length ? ps.map(function (p) { return '<option value="' + p.periode + '"' + (p.periode === last ? ' selected' : '') + '>' + BULAN[p.periode - 1] + ' ' + ta + '</option>'; }).join('') : '<option value="">Belum ada periode berisi data</option>') + '</select></div></div>' +
+  var last = ps.length ? ps[ps.length - 1].periode : 1, to = Math.min(wkCount(ta), last + 1);
+  c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Pengisian Cepat</div><h2>Import Data Periode Sebelumnya</h2></div></div>' +
+    '<div class="card"><div class="card-h"><div><h3>Salin data periode</h3><p>Salin pagu (dan bila perlu realisasi &amp; anggaran kas) dari periode (minggu) sebelumnya ke periode tujuan untuk ' + esc(scopeText()) + ' · TA ' + ta + '.</p></div></div><div class="card-b">' +
+    '<div class="steps"><div class="stepbox"><small>SUMBER</small><div class="fg" style="margin:10px 0 0"><select class="sel" id="iFrom" style="width:100%">' + (ps.length ? ps.map(function (p) { return '<option value="' + p.periode + '"' + (p.periode === last ? ' selected' : '') + '>' + perName(ta, p.periode) + '</option>'; }).join('') : '<option value="">Belum ada periode berisi data</option>') + '</select></div></div>' +
     '<div class="arrow">' + ic('imp', 28).replace('M12 3v12M7 8l5-5 5 5M4 17v4h16v-4', 'M5 12h14M13 6l6 6-6 6') + '</div>' +
-    '<div class="stepbox"><small>TUJUAN</small><div class="fg" style="margin:10px 0 0"><select class="sel" id="iTo" style="width:100%">' + BULAN.map(function (b, i) { return '<option value="' + (i + 1) + '"' + (i + 1 === to ? ' selected' : '') + '>' + b + ' ' + ta + '</option>'; }).join('') + '</select></div></div></div>' +
+    '<div class="stepbox"><small>TUJUAN</small><div class="fg" style="margin:10px 0 0"><select class="sel" id="iTo" style="width:100%">' + weekList(ta).map(function (w) { return '<option value="' + w + '"' + (w === to ? ' selected' : '') + '>' + perName(ta, w) + '</option>'; }).join('') + '</select></div></div></div>' +
     '<div class="row2" style="margin-top:20px"><div class="fg"><label>Data yang disalin</label><select class="sel" id="iMode"><option value="pagu">Pagu saja — realisasi &amp; angkas diisi 0</option><option value="all">Pagu + realisasi + anggaran kas (angka kumulatif)</option></select></div>' +
     '<div class="fg"><label>Jika data tujuan sudah ada</label><select class="sel" id="iOw"><option value="0">Lewati (jangan timpa)</option><option value="1">Timpa dengan data sumber</option></select></div></div>' +
     '<div style="display:flex;gap:10px"><button class="btn" id="iChk">Cek Data</button><button class="btn pri" id="iRun">' + ic('imp', 15) + 'Proses Import</button></div>' +
@@ -731,7 +753,7 @@ function pgImport(c) {
   };
   $('#iRun').onclick = async function () {
     var p = pay();
-    if (!(await confirmBox('Proses import', 'Salin data <b>' + BULAN[p.from - 1] + '</b> → <b>' + BULAN[p.to - 1] + ' ' + ta + '</b> (' + (p.mode === 'all' ? 'pagu + realisasi + angkas' : 'pagu saja') + ', ' + (p.overwrite ? 'menimpa' : 'tanpa menimpa') + ' data yang sudah ada)?'))) return;
+    if (!(await confirmBox('Proses import', 'Salin data <b>' + perName(ta, p.from) + '</b> → <b>' + perName(ta, p.to) + '</b> (' + (p.mode === 'all' ? 'pagu + realisasi + angkas' : 'pagu saja') + ', ' + (p.overwrite ? 'menimpa' : 'tanpa menimpa') + ' data yang sudah ada)?'))) return;
     var b = this; busy(b, true);
     try { var r = await call('importPrev', p); toast('Import selesai: ' + r.copied + ' disalin, ' + r.skipped + ' dilewati.'); await refreshBoot();
       $('#iRes').innerHTML = '<div class="stat"><div><b class="num">' + r.copied + '</b><small>baris disalin</small></div><div><b class="num">' + r.skipped + '</b><small>dilewati</small></div><div><b class="num">' + r.pad + '</b><small>baris PAD baru</small></div></div>';
@@ -748,7 +770,7 @@ async function pgPembanding(c) {
   var ta = Number(S.f.ta), ps = periodsFor(ta);
   if (!PB.a || !ps.some(function (p) { return p.periode === PB.a; })) PB.a = ps.length > 1 ? ps[ps.length - 2].periode : (ps[0] ? ps[0].periode : 1);
   if (!PB.b || !ps.some(function (p) { return p.periode === PB.b; })) PB.b = ps.length ? ps[ps.length - 1].periode : 1;
-  var opt = function (sel) { return ps.map(function (p) { return '<option value="' + p.periode + '"' + (p.periode === sel ? ' selected' : '') + '>' + BULAN[p.periode - 1] + '</option>'; }).join(''); };
+  var opt = function (sel) { return ps.map(function (p) { return '<option value="' + p.periode + '"' + (p.periode === sel ? ' selected' : '') + '>' + perOpt(S.f.ta, p.periode) + '</option>'; }).join(''); };
   c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Analisis</div><h2>Pembanding Data Anggaran</h2></div></div>' +
     '<div class="card"><div class="mode-bar"><div class="seg" id="pbMode"><button data-m="periode">Antar Periode</button><button data-m="pagu">Pagu Murni vs Perubahan</button></div>' +
     '<div class="fl"><label id="lbA">Periode A</label><select class="sel" id="pbA">' + opt(PB.a) + '</select></div>' +
@@ -797,7 +819,7 @@ async function pgPad(c) {
   var d; try { d = await call('pad', fp()); } catch (e) { c.innerHTML = '<div class="card empty"><b>Gagal memuat</b>' + esc(e.message) + '</div>'; return; }
   var anyW = d.rows.some(function (r) { return r.writable; });
   c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Pendapatan</div><h2>Pendapatan Asli Daerah (PAD)</h2></div><div class="sp"></div>' + (anyW ? '<button class="btn pri" id="pdSave">' + ic('save', 15) + 'Simpan PAD</button>' : '') + '</div>' +
-    '<div class="ctx"><span>Per tanggal <b>' + new Date(d.ta, d.periode, 0).getDate() + ' ' + BULAN[d.periode - 1] + ' ' + d.ta + '</b> · Isian target, realisasi pendapatan, dan anggaran kas pendapatan (kumulatif).</span></div>' +
+    '<div class="ctx"><span>Per tanggal <b>' + perEnd(d.ta, d.periode) + '</b> · Isian target, realisasi pendapatan, dan anggaran kas pendapatan (kumulatif).</span></div>' +
     '<div class="card"><div class="tbl-wrap" style="max-height:none"><table class="t" id="pdT"><thead><tr><th class="l">Unit</th><th>Target Pendapatan</th><th>Realisasi Pendapatan</th><th>+/-</th><th>% Realisasi</th><th>Anggaran Kas</th><th>% Angkas</th><th class="c">Deviasi</th></tr></thead><tbody></tbody><tfoot></tfoot></table></div></div>';
   if (!d.rows.length) { $('#pdT tbody').innerHTML = '<tr><td colspan="8"><div class="empty"><b>Tidak ada unit dengan PAD</b>Atur “Nama PAD” pada menu Unit Kerja.</div></td></tr>'; return; }
   var inp = function (r, f) { return r.writable ? '<input class="ni" style="min-width:150px" data-u="' + r.unit + '" data-f="' + f + '" value="' + fmtN(r[f]) + '">' : rp(r[f]); };
@@ -820,7 +842,7 @@ async function pgPad(c) {
  * ===================================================================== */
 async function pgRekap(c) {
   var d; try { d = await call('rekap', fp()); } catch (e) { c.innerHTML = '<div class="card empty"><b>Gagal memuat</b>' + esc(e.message) + '</div>'; return; }
-  var tgl = new Date(d.ta, d.periode, 0).getDate() + ' ' + BULAN[d.periode - 1] + ' ' + d.ta;
+  var tgl = perEnd(d.ta, d.periode);
   var tr = function (r, padMode) { return '<tr><td class="l"><b>' + esc(r.nama) + '</b></td><td>' + rp(r.pagu) + '</td><td>' + rp(r.real) + '</td><td>' + rp(padMode ? r.real - r.pagu : r.pagu - r.real) + '</td><td>' + pct(r.realPct) + '</td><td>' + rp(r.angkas) + '</td><td>' + pct(r.angkasPct) + '</td><td class="c">' + devPill(r.dev) + '</td></tr>'; };
   var ft = function (r, padMode) { return '<tr><td class="l">JUMLAH</td><td>' + rp(r.pagu) + '</td><td>' + rp(r.real) + '</td><td>' + rp(padMode ? r.real - r.pagu : r.pagu - r.real) + '</td><td>' + pct(r.realPct) + '</td><td>' + rp(r.angkas) + '</td><td>' + pct(r.angkasPct) + '</td><td class="c">' + devPill(r.dev) + '</td></tr>'; };
   c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Laporan</div><h2>Rekapitulasi Realisasi Anggaran</h2></div><div class="sp"></div><button class="btn gold" id="rkX">' + ic('xls', 15) + 'Ekspor Excel</button></div>' +
@@ -850,9 +872,9 @@ async function pgRiwayat(c) {
 async function pgArsip(c) {
   var rows; try { rows = await call('arsip'); } catch (e) { return fail(e); }
   c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Arsip</div><h2>Dokumen &amp; Arsip Laporan</h2></div><div class="sp"></div><button class="btn gold" id="arX">' + ic('xls', 15) + 'Buat Laporan Excel</button></div>' +
-    '<div class="ctx"><span>Setiap ekspor Excel otomatis tersimpan di folder Google Drive <b>“SPADAKes - Arsip Laporan”</b>. Laporan baru dibuat sesuai filter: TA ' + S.f.ta + ', ' + BULAN[S.f.periode - 1] + ', ' + dasarText() + ', ' + esc(scopeText()) + '.</span></div>' +
+    '<div class="ctx"><span>Setiap ekspor Excel otomatis tersimpan di folder Google Drive <b>“SPADAKes - Arsip Laporan”</b>. Laporan baru dibuat sesuai filter: TA ' + S.f.ta + ', ' + perName(S.f.ta, S.f.periode) + ', ' + dasarText() + ', ' + esc(scopeText()) + '.</span></div>' +
     '<div class="card"><div class="tbl-wrap"><table class="t"><thead><tr><th class="l">Nama Dokumen</th><th class="l">TA / Periode</th><th class="l">Dibuat oleh</th><th class="l">Waktu</th><th class="c">Berkas</th></tr></thead><tbody>' +
-    (rows.length ? rows.map(function (r) { return '<tr><td class="l"><span class="pill ok" style="margin-right:8px">XLSX</span><b>' + esc(r.nama) + '</b></td><td class="l">' + esc(r.ta) + ' · ' + (BULAN[Number(r.periode) - 1] || '') + '</td><td class="l">' + esc(r.user) + '</td><td class="l num">' + esc(r.ts) + '</td><td class="c">' + (r.url ? '<a class="btn sm" href="' + esc(r.url) + '" target="_blank" rel="noopener">Buka di Drive</a>' : '<span class="na">—</span>') + '</td></tr>'; }).join('') : '<tr><td colspan="5"><div class="empty"><b>Belum ada arsip</b>Klik “Buat Laporan Excel” untuk membuat laporan pertama.</div></td></tr>') + '</tbody></table></div></div>';
+    (rows.length ? rows.map(function (r) { return '<tr><td class="l"><span class="pill ok" style="margin-right:8px">XLSX</span><b>' + esc(r.nama) + '</b></td><td class="l">' + esc(r.ta) + ' · ' + (r.periode ? 'Minggu ' + r.periode : '') + '</td><td class="l">' + esc(r.user) + '</td><td class="l num">' + esc(r.ts) + '</td><td class="c">' + (r.url ? '<a class="btn sm" href="' + esc(r.url) + '" target="_blank" rel="noopener">Buka di Drive</a>' : '<span class="na">—</span>') + '</td></tr>'; }).join('') : '<tr><td colspan="5"><div class="empty"><b>Belum ada arsip</b>Klik “Buat Laporan Excel” untuk membuat laporan pertama.</div></td></tr>') + '</tbody></table></div></div>';
   $('#arX').onclick = async function () { await exportExcel(this); render(); };
 }
 
@@ -927,7 +949,7 @@ async function pgAkun(c) {
 function fillSheet(id) {
   var n = ST.idx[id], f = [];
   if (!n || !n.leaf) return;
-  var fields = [['murni', 'Pagu Murni (APBD)'], ['perubahan', 'Pagu Perubahan (APBD)'], ['blud', 'Pagu BLUD'], ['realisasi', 'Realisasi'], ['angkas', 'Anggaran Kas s/d ' + BULAN[ST.data.periode - 1]]];
+  var fields = [['murni', 'Pagu Murni (APBD)'], ['perubahan', 'Pagu Perubahan (APBD)'], ['blud', 'Pagu BLUD'], ['realisasi', 'Realisasi'], ['angkas', 'Anggaran Kas s/d ' + perEnd(ST.data.ta, ST.data.periode)]];
   fields.forEach(function (x) { if (canEditField(n, x[0])) f.push(x); });
   if (!f.length) return toast('Tidak ada kolom yang dapat diisi pada mode ini.', true);
   var t = n.t;

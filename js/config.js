@@ -5,5 +5,5 @@
  * Jika dikosongkan, URL dapat diatur dari halaman login (tautan "Atur server").
  */
 window.SPADAKES_CONFIG = {
-  apiUrl: "https://script.google.com/macros/s/AKfycbyuxDCtmLFazwatUXzybLoaE8iakycwcPhY936ltJlYszNcIt-gUgyEGFtwxwbYCvZung/exec"
+  apiUrl: ""
 };

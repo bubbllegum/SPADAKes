@@ -51,6 +51,11 @@ Setelah mengubah file frontend, naikkan `VERSION` di **sw.js** (mis. `spadakes-v
 - Filter menciut menjadi ringkasan di HP (*Ubah filter*).
 - Sesi login tersimpan 6 jam; data API tidak pernah di-cache; shell aplikasi tetap terbuka saat offline.
 
+## Periode MINGGUAN
+- Periode kini **Minggu 1–53** (Senin–Minggu; Minggu 1 = minggu yang memuat 1 Januari), lengkap dengan rentang tanggal.
+- Tiap periode dapat diberi **Tanggal data / laporan** sendiri (Struktur Anggaran → Periode → *Status Periode*, atau saat membuat periode baru). Tanggal ini dipakai pada judul laporan Excel, nama file, dan nama sheet (mis. "Per 30 September 2026"). Bila kosong dipakai hari Minggu akhir minggu.
+- **Data lama berbasis bulan?** Di editor Apps Script jalankan sekali fungsi `migrasiBulanKeMinggu` (salin dulu spreadsheet sebagai cadangan). Bulan diubah ke minggu yang memuat akhir bulan itu (September 2026 → Minggu 40) dan tanggal datanya diset ke akhir bulan. Database baru otomatis sudah mingguan.
+
 ## Kecepatan & "Ingat saya"
 - Backend menyimpan tabel besar (Struktur, Nilai, dst.) di cache Apps Script yang otomatis diperbarui saat ada penyimpanan; penyimpanan hanya menulis baris yang berubah; Log dibaca 1.500 baris terakhir.
 - Frontend membuka aplikasi seketika dari data tersimpan di perangkat lalu menyegarkannya di latar belakang, menyimpan hasil halaman selama 2 menit (tombol muat-ulang ⟳ mengosongkannya), dan menggambar tabel Struktur bertahap.

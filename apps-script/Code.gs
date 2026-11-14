@@ -28,41 +28,21 @@ var TEXT_COLS = {
   Nilai: ['key', 'subId', 'updatedAt'], Periode: ['createdAt'], PAD: ['key', 'unit', 'updatedAt'], Log: ['ts', 'detail'],
   Arsip: ['ts', 'nama', 'url', 'fileId'], Config: ['key', 'value']
 };
-/* ---------- periode MINGGUAN: Minggu 1..53 (Senin-Minggu); Minggu 1 = minggu yang memuat 1 Januari ---------- */
-var MAXPER = 53;
-function weekStart_(ta, w) { var j = new Date(Number(ta), 0, 1), dow = (j.getDay() + 6) % 7; return new Date(Number(ta), 0, 1 - dow + (w - 1) * 7); }
-function weekRange_(ta, w) {
-  var s = weekStart_(ta, w), e = new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6), a = new Date(Number(ta), 0, 1), z = new Date(Number(ta), 11, 31);
-  if (s < a) s = a; if (e > z) e = z;
-  return { s: s, e: e };
+/* ---------- PERIODE = TANGGAL DATA ----------
+ * Setiap periode adalah satu tanggal (bulan + tanggal). Nomor periode disimpan sebagai
+ * urutan hari dalam tahun (1 Jan = 1 ... 31 Des = 365/366), sehingga unik & berurutan. */
+var MAXPER = 366;
+function perDate_(ta, p) { return new Date(Number(ta), 0, Number(p)); }
+function doyOf_(d) { return Math.round((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(d.getFullYear(), 0, 1)) / 86400000) + 1; }
+function validPer_(ta, p) { p = Number(p); return p >= 1 && p <= MAXPER && perDate_(ta, p).getFullYear() === Number(ta); }
+function perFromTgl_(ta, tgl) { // 'YYYY-MM-DD' -> nomor periode
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(tgl || ''));
+  if (!m) throw new Error('Tanggal tidak valid.');
+  var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (d.getFullYear() !== Number(ta) || d.getMonth() !== Number(m[2]) - 1) throw new Error('Tanggal harus berada pada tahun anggaran ' + ta + '.');
+  return doyOf_(d);
 }
-function weeksIn_(ta) { var n = MAXPER, z = new Date(Number(ta), 11, 31); while (n > 1 && weekStart_(ta, n) > z) n--; return n; }
-function weekOfDate_(d) { // minggu ke-berapa (dalam TA = tahun d) untuk tanggal d
-  var ta = d.getFullYear(), w = Math.floor((new Date(ta, d.getMonth(), d.getDate()) - weekStart_(ta, 1)) / 604800000) + 1;
-  return Math.max(1, Math.min(weeksIn_(ta), w));
-}
-/** Tanggal data/laporan sebuah periode: override (Config 'tgl|TA|PER') atau akhir minggu. */
-function periodTgl_(ta, w) {
-  var key = 'tgl|' + ta + '|' + w, rows = readTable_('Config');
-  for (var i = 0; i < rows.length; i++) if (rows[i].key === key) return String(rows[i].value || '');
-  return '';
-}
-function perEndDate_(ta, w) {
-  var t = periodTgl_(ta, w), m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
-  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : weekRange_(ta, w).e;
-}
-function setPeriodTgl_(ta, w, tgl) {
-  var key = 'tgl|' + ta + '|' + w, rows = readTable_('Config'), ex = null;
-  rows.forEach(function (r) { if (r.key === key) ex = r; });
-  tgl = String(tgl || '');
-  if (tgl && !/^\d{4}-\d{2}-\d{2}$/.test(tgl)) throw new Error('Format tanggal tidak valid.');
-  if (ex) updateRow_('Config', ex._row, { value: tgl }); else if (tgl) appendRows_('Config', [{ key: key, value: tgl }]);
-}
-function perName_(ta, w) {
-  var r = weekRange_(ta, w), a = r.s, e = r.e, ab = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-  var span = a.getMonth() === e.getMonth() ? a.getDate() + '-' + e.getDate() + ' ' + ab[e.getMonth()] : a.getDate() + ' ' + ab[a.getMonth()] + ' - ' + e.getDate() + ' ' + ab[e.getMonth()];
-  return 'Minggu ' + w + ' (' + span + ' ' + ta + ')';
-}
+function perName_(ta, p) { var d = perDate_(ta, p); return d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear(); }
 var MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
 /* =========================== WEB APP (API JSON) =========================== */
@@ -117,7 +97,6 @@ var ROUTES = {
   updateNode: { fn: function (u, p) { return apiUpdateNode_(u, p); } },
   deleteNode: { fn: function (u, p) { return apiDeleteNode_(u, p); } },
   createPeriod: { admin: true, fn: function (u, p) { return apiCreatePeriod_(u, p); } },
-  setPeriodDate: { admin: true, fn: function (u, p) { setPeriodTgl_(Number(p.ta), Number(p.periode), p.tgl); log_(u.username, 'Tanggal periode', 'TA ' + p.ta + ' Minggu ' + p.periode + ' -> ' + (p.tgl || 'otomatis')); return true; } },
   setPeriodStatus: { admin: true, fn: function (u, p) { return apiSetPeriodStatus_(u, p); } },
   createTA: { admin: true, fn: function (u, p) { return apiCreateTA_(u, p); } },
   importPrev: { fn: function (u, p) { return apiImportPrev_(u, p); } },
@@ -450,9 +429,8 @@ function apiResetPassword_(u, p) {
 /* =========================== SEED =========================== */
 function seedIfEmpty_() {
   if (readTable_('Units').length) return;
-  var ta = 2026, per = weekOfDate_(new Date(2026, 8, 30)), who = 'sistem', ts = now_(); // data awal = realisasi s/d 30 Sept 2026 (Minggu 40)
-  PropertiesService.getScriptProperties().setProperty('PER_MODE', 'minggu');
-  setPeriodTgl_(2026, per, '2026-09-30');
+  var ta = 2026, per = doyOf_(new Date(2026, 8, 30)), who = 'sistem', ts = now_(); // data awal = realisasi s/d 30 Sept 2026
+  PropertiesService.getScriptProperties().setProperty('PER_MODE', 'tanggal');
   appendRows_('Units', SEED.units.map(function (u, i) { return { id: u[0], nama: u[1], singkatan: u[2], punyaBLUD: u[3], padNama: u[4], urutan: i + 1, aktif: 1 }; }));
   var struktur = [], nilai = [], cur = {}, n = 0, curUnit = '', lastProg = '', lastKeg = '', order = 0;
   SEED.rows.forEach(function (r) {
@@ -499,35 +477,48 @@ function seedIfEmpty_() {
 
 
 /**
- * MIGRASI SEKALI JALAN — hanya untuk database lama yang periodenya BULAN (1-12).
- * Jalankan manual dari editor Apps Script: pilih fungsi "migrasiBulanKeMinggu" lalu Run.
- * Bulan m diubah menjadi minggu yang memuat HARI TERAKHIR bulan itu (mis. September 2026 -> Minggu 40).
- * Aman dijalankan ulang (ditandai PER_MODE=minggu). Disarankan salin dulu spreadsheet sebagai cadangan.
+ * MIGRASI SEKALI JALAN — untuk database lama yang periodenya BULAN (1-12) atau MINGGU (1-53).
+ * Jalankan manual dari editor Apps Script: pilih fungsi "migrasiKeTanggal" lalu Run
+ * (salin dulu spreadsheet sebagai cadangan). Hasil: setiap periode menjadi satu TANGGAL data.
+ *  - dari bulan : bulan m -> tanggal terakhir bulan itu (September 2026 -> 30 September 2026)
+ *  - dari minggu: minggu w -> tanggal data yang pernah diisi, atau hari Minggu akhir minggu itu
+ * Aman dijalankan ulang (ditandai PER_MODE=tanggal).
  */
-function migrasiBulanKeMinggu() {
-  var props = PropertiesService.getScriptProperties();
-  if (props.getProperty('PER_MODE') === 'minggu') return 'Sudah berbasis minggu. Tidak ada yang diubah.';
+function migrasiKeTanggal() {
+  var props = PropertiesService.getScriptProperties(), mode = props.getProperty('PER_MODE');
+  if (mode === 'tanggal') return 'Sudah berbasis tanggal. Tidak ada yang diubah.';
   ensureSetup_();
   var lock = LockService.getScriptLock(); lock.waitLock(30000);
   try {
-    var map = function (ta, m) { return weekOfDate_(new Date(Number(ta), Number(m), 0)); };
-    var out = [], tglList = [];
+    var tglCfg = {};
+    readTable_('Config').forEach(function (r) { var m = /^tgl\|(\d+)\|(\d+)$/.exec(String(r.key)); if (m && r.value) tglCfg[m[1] + '|' + m[2]] = String(r.value); });
+    var map = function (ta, x) {
+      x = Number(x); ta = Number(ta);
+      if (mode === 'minggu') {
+        var t = tglCfg[ta + '|' + x], mm = t && /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+        if (mm) return doyOf_(new Date(Number(mm[1]), Number(mm[2]) - 1, Number(mm[3])));
+        var j = new Date(ta, 0, 1), dow = (j.getDay() + 6) % 7, s = new Date(ta, 0, 1 - dow + (x - 1) * 7), e = new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6);
+        if (e.getFullYear() > ta) e = new Date(ta, 11, 31);
+        return doyOf_(e);
+      }
+      return doyOf_(new Date(ta, x, 0)); // bulan -> hari terakhir bulan
+    };
+    var lim = mode === 'minggu' ? 53 : 12, out = [];
     ['Periode', 'Nilai', 'PAD'].forEach(function (name) {
       var sh = ss_().getSheetByName(name), cols = SCHEMA[name], last = sh.getLastRow();
       if (last < 2) return;
       var vals = sh.getRange(2, 1, last - 1, cols.length).getValues(), iTa = cols.indexOf('ta'), iPer = cols.indexOf('periode'), iKey = cols.indexOf('key'), n = 0;
       vals.forEach(function (r) {
-        var m = Number(r[iPer]); if (!(m >= 1 && m <= 12)) return;
-        var w = map(r[iTa], m); r[iPer] = w; n++;
-        if (name === 'Periode') { var ld = new Date(Number(r[iTa]), m, 0); tglList.push([r[iTa], w, Utilities.formatDate(ld, TZ, 'yyyy-MM-dd')]); }
+        var x = Number(r[iPer]); if (!(x >= 1 && x <= lim)) return;
+        var w = map(r[iTa], x); r[iPer] = w; n++;
         if (iKey >= 0) { var p = String(r[iKey]).split('|'); p[1] = String(w); r[iKey] = p.join('|'); }
       });
       sh.getRange(2, 1, vals.length, cols.length).setValues(vals);
       invalidate_(name); out.push(name + ': ' + n + ' baris');
     });
-    tglList.forEach(function (x) { setPeriodTgl_(x[0], x[1], x[2]); }); // tanggal data = akhir bulan lama
-    props.setProperty('PER_MODE', 'minggu');
-    log_('sistem', 'Migrasi periode', 'bulan -> minggu; ' + out.join('; '));
+    props.setProperty('PER_MODE', 'tanggal');
+    log_('sistem', 'Migrasi periode', (mode === 'minggu' ? 'minggu' : 'bulan') + ' -> tanggal; ' + out.join('; '));
     return 'Migrasi selesai. ' + out.join('; ');
   } finally { lock.releaseLock(); }
 }
+function migrasiBulanKeMinggu() { return migrasiKeTanggal(); } // nama lama (kompatibilitas)

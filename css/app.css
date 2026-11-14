@@ -502,3 +502,4 @@ table.st.mob{min-width:0;table-layout:auto}
 .remember input:focus-visible+.box{outline:3px solid var(--gold-100)}
 .remember small{color:var(--muted);font-size:12px}
 .btn-login{margin-top:18px}
+@media (min-width:1025px){.f-grid{grid-template-columns:minmax(120px,.7fr) minmax(230px,1.5fr) minmax(150px,1fr) minmax(170px,1fr) minmax(240px,1.6fr)}}

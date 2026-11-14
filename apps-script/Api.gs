@@ -55,7 +55,7 @@ function canWrite_(u, unitId) {
 
 function periodsOf_(ta) {
   return readTable_('Periode').filter(function (r) { return Number(r.ta) === Number(ta); })
-    .map(function (r) { return { periode: Number(r.periode), status: r.status, tgl: periodTgl_(ta, Number(r.periode)) }; })
+    .map(function (r) { return { periode: Number(r.periode), status: r.status, tgl: Utilities.formatDate(perDate_(ta, Number(r.periode)), TZ, 'yyyy-MM-dd') }; })
     .sort(function (a, b) { return a.periode - b.periode; });
 }
 
@@ -167,7 +167,7 @@ function calcTree_(nodes, nilai, o) {
 
 function resolvePeriode_(ta, p) {
   var per = Number(p.periode);
-  if (per >= 1 && per <= weeksIn_(ta)) return per;
+  if (validPer_(ta, per) && periodRow_(ta, per)) return per;
   var ps = periodsOf_(ta);
   return ps.length ? ps[ps.length - 1].periode : 1;
 }
@@ -183,11 +183,12 @@ function apiDashboard_(u, p) {
   var units = unitFilter_(u, p.unit), per = resolvePeriode_(ta, p);
   var nodes = loadStruktur_(ta, units), byP = nilaiByPeriode_(ta), o = { dasar: dasar, jenis: p.jenis || '' };
   var months = [];
-  for (var m = 1; m <= weeksIn_(ta); m++) {
-    if (!byP[m]) { months.push({ periode: m, has: false }); continue; }
+  periodsOf_(ta).forEach(function (pr) { // satu titik per tanggal data yang sudah ada isinya
+    var m = pr.periode;
+    if (!byP[m]) return;
     var r = calcTree_(nodes, byP[m], o), d = dev_(r.total, cfg.ambang);
     months.push({ periode: m, has: true, pagu: r.total.pagu, real: r.total.real, angkas: r.total.angkas, realPct: d.realPct, angkasPct: d.angkasPct, dev: d.dev });
-  }
+  });
   var cur = calcTree_(nodes, byP[per] || {}, o), allU = unitsAll_(), perUnit = [];
   allU.forEach(function (x) {
     if (units.indexOf(x.id) < 0) return;
@@ -240,7 +241,7 @@ function apiStruktur_(u, p) {
 
 function apiSaveNilai_(u, p) {
   var ta = Number(p.ta), per = Number(p.periode), items = p.items || [];
-  if (!(per >= 1 && per <= weeksIn_(ta))) throw new Error('Periode tidak valid.');
+  if (!validPer_(ta, per)) throw new Error('Periode tidak valid.');
   if (!items.length) return { saved: 0 };
   var lock = LockService.getScriptLock(); lock.waitLock(30000);
   try {
@@ -390,16 +391,15 @@ function apiDeleteNode_(u, p) {
 
 /* ------------------------- periode, TA, import ------------------------- */
 function apiCreatePeriod_(u, p) {
-  var ta = Number(p.ta), per = Number(p.periode), from = Number(p.copyFrom || 0), mode = p.copyMode || 'pagu';
-  if (!(per >= 1 && per <= weeksIn_(ta))) throw new Error('Periode tidak valid.');
+  var ta = Number(p.ta), per = p.tgl ? perFromTgl_(ta, p.tgl) : Number(p.periode), from = Number(p.copyFrom || 0), mode = p.copyMode || 'pagu';
+  if (!validPer_(ta, per)) throw new Error('Periode tidak valid.');
   if (periodRow_(ta, per)) throw new Error(perName_(ta, per) + ' sudah ada.');
   var lock = LockService.getScriptLock(); lock.waitLock(30000);
   try {
     appendRows_('Periode', [{ ta: ta, periode: per, status: 'Terbuka', createdBy: u.username, createdAt: now_() }]);
-    if (p.tgl) setPeriodTgl_(ta, per, p.tgl);
     var res = { copied: 0 };
     if (from && mode !== 'none') res = copyPeriode_(u, ta, from, per, mode === 'all', true, unitsAll_().map(function (x) { return x.id; }));
-    log_(u.username, 'Buat periode', perName_(ta, per) + (from ? ' (salin dari Minggu ' + from + ', ' + mode + ')' : ''));
+    log_(u.username, 'Buat periode', perName_(ta, per) + (from ? ' (salin dari ' + perName_(ta, from) + ', ' + mode + ')' : ''));
     return res;
   } finally { lock.releaseLock(); }
 }
@@ -459,7 +459,7 @@ function apiImportPrev_(u, p) {
   try {
     if (!tr) appendRows_('Periode', [{ ta: ta, periode: to, status: 'Terbuka', createdBy: u.username, createdAt: now_() }]);
     var res = copyPeriode_(u, ta, from, to, p.mode === 'all', !!p.overwrite, units);
-    log_(u.username, 'Import data periode sebelumnya', 'Minggu ' + from + ' -> Minggu ' + to + ' TA ' + ta + ' (' + res.copied + ' baris)');
+    log_(u.username, 'Import data periode sebelumnya', perName_(ta, from) + ' -> ' + perName_(ta, to) + ' (' + res.copied + ' baris)');
     return res;
   } finally { lock.releaseLock(); }
 }
@@ -595,7 +595,7 @@ function apiPembanding_(u, p) {
     var dasar = p.dasar === 'murni' ? 'murni' : 'perubahan', a = Number(p.a), b = Number(p.b);
     if (!a || !b) throw new Error('Pilih dua periode yang akan dibandingkan.');
     A = calcTree_(nodes, byP[a] || {}, { dasar: dasar, jenis: p.jenis }); B = calcTree_(nodes, byP[b] || {}, { dasar: dasar, jenis: p.jenis });
-    la = 'Minggu ' + a + ' (' + perName_(ta, a).replace(/^Minggu \d+ \(|\)$/g, '') + ')'; lb = 'Minggu ' + b + ' (' + perName_(ta, b).replace(/^Minggu \d+ \(|\)$/g, '') + ')';
+    la = perName_(ta, a); lb = perName_(ta, b);
   }
   var bi = {};
   B.nodes.forEach(function (n) { bi[n.id] = n; });
@@ -618,7 +618,7 @@ function apiExport_(u, p) {
   var ta = Number(p.ta), per = resolvePeriode_(ta, p), cfg = getConfig_(), dasar = p.dasar === 'murni' ? 'murni' : 'perubahan';
   var units = unitFilter_(u, p.unit), nodes = loadStruktur_(ta, units), byP = nilaiByPeriode_(ta);
   var r = calcTree_(nodes, byP[per] || {}, { dasar: dasar, jenis: p.jenis });
-  var pe = perEndDate_(ta, per), tgl = pe.getDate(), abbr = ABBR[pe.getMonth()], full = MONTHS[pe.getMonth()];
+  var pe = perDate_(ta, per), tgl = pe.getDate(), abbr = ABBR[pe.getMonth()], full = MONTHS[pe.getMonth()];
   var uData = [];
   unitsAll_().forEach(function (x) {
     if (units.indexOf(x.id) < 0) return;

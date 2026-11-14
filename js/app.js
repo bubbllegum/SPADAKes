@@ -135,6 +135,7 @@ var IC = {
   dash: '<path d="M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z"/>',
   tree: '<path d="M4 5h16M4 10h16M4 15h10M4 20h10"/>',
   imp: '<path d="M12 3v12M7 8l5-5 5 5M4 17v4h16v-4"/>',
+  xls: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13l4 4M13 13l-4 4"/>',
   cmp: '<path d="M7 7h13l-4-4M17 17H4l4 4"/>',
   pad: '<path d="M12 2l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z"/>',
   rek: '<path d="M4 4h16v16H4zM9 4v16M15 4v16M4 10h16M4 15h16"/>',
@@ -154,6 +155,7 @@ var PAGES = {
   dashboard: { t: 'Dashboard', crumb: 'Dashboard Pengendalian Deviasi Anggaran', ic: 'dash', grp: 'MENU UTAMA', filters: ['ta', 'per', 'jenis', 'dasar', 'unit'] },
   struktur: { t: 'Struktur Anggaran', crumb: 'Struktur Anggaran Bertingkat per Unit', ic: 'tree', grp: 'MENU UTAMA', filters: ['ta', 'per', 'jenis', 'dasar', 'unit'] },
   importPrev: { t: 'Import Data Periode Sebelumnya', crumb: 'Import Data Periode Sebelumnya', ic: 'imp', grp: 'MENU UTAMA', filters: ['ta', 'unit'], write: true },
+  importXlsx: { t: 'Input Data dari Excel', crumb: 'Input Data Bulan Lalu dari Excel', ic: 'xls', grp: 'MENU UTAMA', filters: [], write: true },
   pembanding: { t: 'Pembanding', crumb: 'Pembanding Data Anggaran', ic: 'cmp', grp: 'MENU UTAMA', filters: ['ta', 'jenis', 'unit'] },
   pad: { t: 'Pendapatan PAD', crumb: 'Pendapatan Asli Daerah (PAD)', ic: 'pad', grp: 'MENU UTAMA', filters: ['ta', 'per', 'unit'] },
   rekap: { t: 'Rekapitulasi', crumb: 'Rekapitulasi Realisasi Anggaran', ic: 'rek', grp: 'MENU UTAMA', filters: ['ta', 'per', 'dasar', 'unit'] },
@@ -226,7 +228,7 @@ function render() {
   updateFSum();
   var c = $('#content');
   c.innerHTML = '<div class="card card-b"><div class="skel" style="width:30%"></div><br><div class="skel"></div><br><div class="skel" style="width:70%"></div></div>';
-  ({ dashboard: pgDashboard, struktur: pgStruktur, importPrev: pgImport, pembanding: pgPembanding, pad: pgPad, rekap: pgRekap, riwayat: pgRiwayat, arsip: pgArsip, unit: pgUnit, akun: pgAkun })[S.page](c);
+  ({ dashboard: pgDashboard, struktur: pgStruktur, importPrev: pgImport, importXlsx: pgImportXlsx, pembanding: pgPembanding, pad: pgPad, rekap: pgRekap, riwayat: pgRiwayat, arsip: pgArsip, unit: pgUnit, akun: pgAkun })[S.page](c);
 }
 
 /* ------------------------- filter ------------------------- */
@@ -945,6 +947,201 @@ async function pgAkun(c) {
     try { S.boot.cfg = await call('saveConfig', { instansi: $('#cfIn').value, ambang: $('#cfAm').value, judulLaporan: $('#cfJd').value }); toast('Pengaturan disimpan.'); } catch (e) { fail(e); }
     busy(b, false);
   };
+}
+
+/* ===================================================================== *
+ *  INPUT DATA DARI EXCEL  (berkas "RINCIAN REALISASI ANGGARAN DINKES Per <tanggal>.xlsx")
+ *  Dibaca langsung di browser (tanpa pustaka): unzip -> XML -> baris -> dicocokkan ke struktur.
+ * ===================================================================== */
+async function xlUnzip(buf) {
+  var dv = new DataView(buf), u8 = new Uint8Array(buf), n = u8.length, e = -1, i;
+  for (i = n - 22; i >= Math.max(0, n - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('Berkas bukan Excel (.xlsx) yang valid.');
+  var cnt = dv.getUint16(e + 10, true), off = dv.getUint32(e + 16, true), files = {}, td = new TextDecoder();
+  for (var k = 0; k < cnt; k++) {
+    if (dv.getUint32(off, true) !== 0x02014b50) break;
+    var meth = dv.getUint16(off + 10, true), csz = dv.getUint32(off + 20, true), nl = dv.getUint16(off + 28, true), el = dv.getUint16(off + 30, true), cl = dv.getUint16(off + 32, true), lho = dv.getUint32(off + 42, true);
+    files[td.decode(u8.subarray(off + 46, off + 46 + nl))] = { meth: meth, csz: csz, lho: lho };
+    off += 46 + nl + el + cl;
+  }
+  return { u8: u8, dv: dv, files: files };
+}
+async function xlRead(z, name) {
+  var f = z.files[name]; if (!f) return null;
+  var p = f.lho, nl = z.dv.getUint16(p + 26, true), el = z.dv.getUint16(p + 28, true), st = p + 30 + nl + el, data = z.u8.subarray(st, st + f.csz);
+  if (f.meth === 0) return new TextDecoder().decode(data);
+  if (f.meth !== 8) throw new Error('Format kompresi berkas tidak didukung.');
+  if (!window.DecompressionStream) throw new Error('Browser Anda belum mendukung pembacaan Excel. Perbarui Chrome/Edge/Safari.');
+  var buf = await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
+  return new TextDecoder().decode(buf);
+}
+function xmlDoc(t) { return new DOMParser().parseFromString(t, 'application/xml'); }
+function xlCol(ref) { var m = /^([A-Z]+)/.exec(ref), n = 0; for (var i = 0; i < m[1].length; i++) n = n * 26 + (m[1].charCodeAt(i) - 64); return n; }
+async function xlParse(buf) {
+  var z = await xlUnzip(buf), wbx = await xlRead(z, 'xl/workbook.xml'), rl = await xlRead(z, 'xl/_rels/workbook.xml.rels');
+  if (!wbx || !rl) throw new Error('Struktur berkas Excel tidak dikenali.');
+  var rel = {}; [].forEach.call(xmlDoc(rl).getElementsByTagName('Relationship'), function (r) { rel[r.getAttribute('Id')] = r.getAttribute('Target'); });
+  var shared = [], ss = await xlRead(z, 'xl/sharedStrings.xml');
+  if (ss) [].forEach.call(xmlDoc(ss).getElementsByTagName('si'), function (si) { var t = ''; [].forEach.call(si.getElementsByTagName('t'), function (x) { t += x.textContent; }); shared.push(t); });
+  var sheets = [], list = [].slice.call(xmlDoc(wbx).getElementsByTagName('sheet'));
+  for (var i = 0; i < list.length; i++) {
+    var tg = rel[list[i].getAttribute('r:id')] || ''; tg = tg.charAt(0) === '/' ? tg.slice(1) : 'xl/' + tg.replace(/^\.\//, '');
+    var xml = await xlRead(z, tg); if (!xml) continue;
+    var rows = {}, max = 0;
+    [].forEach.call(xmlDoc(xml).getElementsByTagName('row'), function (row) {
+      var rn = Number(row.getAttribute('r')); max = Math.max(max, rn); var o = {};
+      [].forEach.call(row.getElementsByTagName('c'), function (c) {
+        var t = c.getAttribute('t'), v = c.getElementsByTagName('v')[0], val = null;
+        if (t === 'inlineStr') { val = ''; [].forEach.call(c.getElementsByTagName('t'), function (x) { val += x.textContent; }); }
+        else if (v) val = t === 's' ? shared[Number(v.textContent)] : (t === 'str' || t === 'e' || t === 'b' ? v.textContent : (v.textContent === '' ? null : Number(v.textContent)));
+        if (val !== null && val !== '') o[xlCol(c.getAttribute('r'))] = val;
+      });
+      rows[rn] = o;
+    });
+    sheets.push({ name: list[i].getAttribute('name'), rows: rows, max: max });
+  }
+  return sheets;
+}
+function xlNorm(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+function xlNum(v) { if (typeof v === 'number') return isFinite(v) ? v : 0; var x = parseNum(String(v == null ? '' : v)); return isNaN(x) || x === '' ? 0 : x; }
+function xlMonth(t) { t = String(t).toLowerCase().slice(0, 3); var m = { jan: 0, feb: 1, mar: 2, apr: 3, mei: 4, may: 4, jun: 5, jul: 6, agu: 7, agt: 7, aug: 7, sep: 8, okt: 9, oct: 9, nov: 10, des: 11, dec: 11 }; return m[t] === undefined ? -1 : m[t]; }
+function xlFindDate(texts) { // "Realisasi s/d Tanggal 31 Okt 2026", "Per 31 Agustus 2026", dst.
+  for (var i = 0; i < texts.length; i++) {
+    var m = /(\d{1,2})\s+([A-Za-z]{3,12})\.?\s+(\d{4})/.exec(String(texts[i] || ''));
+    if (m && xlMonth(m[2]) >= 0) return new Date(Number(m[3]), xlMonth(m[2]), Number(m[1]));
+  }
+  return null;
+}
+function xlMatchUnit(name, units) {
+  var n = xlNorm(name), i; if (!n) return null;
+  for (var i = 0; i < units.length; i++) if (xlNorm(units[i].nama) === n || xlNorm(units[i].singkatan) === n || xlNorm(units[i].id) === n) return units[i];
+  if (n.length >= 6) for (i = 0; i < units.length; i++) { var u = xlNorm(units[i].nama); if (u && (u.indexOf(n) >= 0 || n.indexOf(u) >= 0)) return units[i]; }
+  return null;
+}
+function xlParseRincian(sh, units) {
+  var hr = 0, r, R = sh.rows;
+  for (r = 1; r <= 40 && !hr; r++) if (R[r] && R[r][1] != null && String(R[r][1]).trim().toUpperCase() === 'KODE') hr = r;
+  if (!hr) throw new Error('Judul kolom "KODE" tidak ditemukan pada lembar "' + sh.name + '". Pastikan ini berkas Rincian Realisasi Anggaran.');
+  var cP = 0, cR = 0, cK = 0, tipe = 'murni';
+  Object.keys(R[hr]).forEach(function (k) {
+    var t = String(R[hr][k]).replace(/\s+/g, ' ').trim().toUpperCase(), c = Number(k);
+    if (!cP && /^PAGU/.test(t)) { cP = c; tipe = /PERUBAHAN/.test(t) ? 'perubahan' : 'murni'; }
+    else if (!cR && t === 'REALISASI') cR = c;
+    else if (!cK && /ANGGARAN KAS|ANGKAS/.test(t) && t.indexOf('%') < 0) cK = c;
+  });
+  cP = cP || 3; cR = cR || 4; cK = cK || 7;
+  var heads = []; for (r = 1; r < hr; r++) if (R[r] && R[r][1] != null) heads.push(R[r][1]);
+  var rows = [], cur = null, skipped = 0;
+  for (r = hr + 1; r <= sh.max; r++) {
+    var row = R[r]; if (!row) continue;
+    var a = row[1] == null ? '' : String(row[1]).trim(), b = row[2];
+    if (!a) continue;
+    if (b == null || b === '') { var u = xlMatchUnit(a, units); if (u) cur = u.id; continue; }
+    if (a.split('.').length !== 6 || !/^\d/.test(a)) continue;
+    rows.push({ unit: cur, kode: a, uraian: String(b).replace(/\s+/g, ' ').trim(), pagu: xlNum(row[cP]), real: xlNum(row[cR]), angkas: xlNum(row[cK]) });
+  }
+  return { rows: rows, tipe: tipe, heads: heads };
+}
+function xlParsePad(sh, units) {
+  var R = sh.rows, r, start = 0, out = [];
+  for (r = 1; r <= sh.max && !start; r++) if (R[r] && R[r][1] != null && /PENDAPATAN ASLI DAERAH/i.test(String(R[r][1]))) start = r;
+  if (!start) return [];
+  var cT = 2, cR = 3, cK = 6, hr = 0;
+  for (r = start + 1; r <= start + 4 && !hr; r++) if (R[r] && R[r][1] != null && /^UNIT$/i.test(String(R[r][1]).trim())) hr = r;
+  if (hr) Object.keys(R[hr]).forEach(function (k) { var t = String(R[hr][k]).toUpperCase(), c = Number(k); if (/TARGET/.test(t)) cT = c; else if (/^REALISASI/.test(t.trim()) && t.indexOf('%') < 0) cR = c; else if (/ANGGARAN KAS/.test(t)) cK = c; });
+  for (r = (hr || start) + 1; r <= sh.max; r++) {
+    var row = R[r]; if (!row || row[1] == null) continue;
+    var nm = xlNorm(row[1]); if (/^jumlah/.test(nm)) break;
+    var u = null; units.forEach(function (x) { if (x.padNama && xlNorm(x.padNama) === nm) u = x; });
+    if (u) out.push({ unit: u.id, nama: u.padNama, target: xlNum(row[cT]), realisasi: xlNum(row[cR]), angkas: xlNum(row[cK]) });
+  }
+  return out;
+}
+
+var IX = null;
+function pgImportXlsx(c) {
+  IX = null;
+  c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Pengisian Data</div><h2>Input Data Bulan Lalu dari Excel</h2></div></div>' +
+    '<div class="ctx"><span>Unggah berkas <b>RINCIAN REALISASI ANGGARAN DINKES Per &lt;tanggal&gt;.xlsx</b> (format yang sama dengan laporan). Aplikasi membaca kode sub kegiatan, pagu, realisasi, dan anggaran kas, mencocokkannya dengan struktur, lalu menyimpannya sebagai periode pada tanggal yang Anda pilih. Anda dapat meninjau hasilnya sebelum disimpan.</span></div>' +
+    '<div class="card"><div class="card-b">' +
+    '<label class="drop" id="xDrop"><input type="file" id="xFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>' + ic('xls', 34) + '<b>Pilih berkas Excel (.xlsx)</b><span>atau seret dan lepaskan berkas ke sini</span></label>' +
+    '</div></div><div id="xBody"></div>';
+  var inp = $('#xFile', c), drop = $('#xDrop', c);
+  inp.onchange = function () { if (inp.files[0]) ixLoad(c, inp.files[0]); };
+  ['dragover', 'dragenter'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+  ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
+  drop.addEventListener('drop', function (e) { var f = e.dataTransfer && e.dataTransfer.files[0]; if (f) ixLoad(c, f); });
+}
+async function ixLoad(c, file) {
+  var body = $('#xBody', c);
+  body.innerHTML = '<div class="card card-b"><div class="skel" style="width:40%"></div><br><div class="skel"></div></div>';
+  try {
+    if (!/\.xlsx$/i.test(file.name)) throw new Error('Gunakan berkas berformat .xlsx.');
+    var units = S.boot.units, sheets = await xlParse(await file.arrayBuffer());
+    var sr = sheets.filter(function (x) { return /rincian/i.test(x.name); })[0] || sheets[0];
+    if (!sr) throw new Error('Berkas tidak berisi lembar kerja.');
+    var rk = sheets.filter(function (x) { return /rekap/i.test(x.name); })[0] || sheets[1];
+    var pr = xlParseRincian(sr, units), pad = rk ? xlParsePad(rk, units) : [];
+    var dt = xlFindDate(pr.heads.concat([sr.name, file.name]));
+    var ta = dt ? dt.getFullYear() : Number(S.f.ta);
+    if (S.boot.tas.indexOf(ta) < 0) throw new Error('Tahun Anggaran ' + ta + ' belum dibuat. Buat dulu melalui Struktur Anggaran → Periode & TA.');
+    var ps = periodsFor(ta), ref = ps.length ? ps[ps.length - 1].periode : 1;
+    var st = await call('struktur', { ta: ta, periode: ref, dasar: 'perubahan', unit: 'ALL', jenis: '' });
+    var idx = {}; st.nodes.forEach(function (n) { if (n.leaf) idx[n.unit + '|' + n.kode] = n; });
+    var ok = [], miss = [], deny = [];
+    pr.rows.forEach(function (r) { var n = r.unit && idx[r.unit + '|' + r.kode]; if (!n) miss.push(r); else if (!st.writable[n.unit]) deny.push(r); else ok.push(r); });
+    var padOk = pad.filter(function (p) { return st.writable[p.unit]; });
+    IX = { ta: ta, rows: ok, tipe: pr.tipe, pad: padOk, file: file.name };
+    var sum = function (a, k) { return a.reduce(function (t, x) { return t + (x[k] || 0); }, 0); };
+    var def = dt || defaultDate(ta);
+    body.innerHTML =
+      '<div class="card" style="margin-top:20px"><div class="card-h"><div><h3>Hasil pembacaan berkas</h3><p>' + esc(file.name) + ' · lembar “' + esc(sr.name) + '”</p></div></div><div class="card-b">' +
+      '<div class="stat"><div><b class="num">' + ok.length + '</b><small>sub kegiatan cocok &amp; siap diimpor</small></div><div><b class="num">' + miss.length + '</b><small>tidak ditemukan di struktur</small></div><div><b class="num">' + deny.length + '</b><small>dilewati (tanpa hak akses unit)</small></div><div><b class="num">' + padOk.length + '</b><small>baris PAD terbaca</small></div></div>' +
+      '<table class="t" style="margin-top:18px"><thead><tr><th class="l">Jumlah dari baris yang cocok</th><th>' + (pr.tipe === 'perubahan' ? 'Pagu Perubahan' : 'Pagu Murni') + '</th><th>Realisasi</th><th>Anggaran Kas</th></tr></thead><tbody><tr><td class="l"><b>' + ok.length + ' sub kegiatan</b></td><td>' + rp(sum(ok, 'pagu')) + '</td><td>' + rp(sum(ok, 'real')) + '</td><td>' + rp(sum(ok, 'angkas')) + '</td></tr></tbody></table>' +
+      (miss.length || deny.length ? '<details style="margin-top:16px"><summary style="cursor:pointer;font-weight:700">Lihat ' + (miss.length + deny.length) + ' baris yang tidak diimpor</summary><table class="t" style="margin-top:10px"><thead><tr><th class="l">Kode</th><th class="l">Uraian</th><th class="l">Alasan</th></tr></thead><tbody>' +
+        miss.concat(deny).slice(0, 80).map(function (r) { return '<tr><td class="l num">' + esc(r.kode) + '</td><td class="l">' + esc(r.uraian) + '</td><td class="l">' + (miss.indexOf(r) >= 0 ? (r.unit ? 'Kode tidak ada pada struktur unit ini' : 'Unit tidak dikenali') : 'Tidak berhak mengubah unit') + '</td></tr>'; }).join('') + '</tbody></table>' + (miss.length + deny.length > 80 ? '<div class="hint" style="font-size:12px;color:var(--muted);margin-top:8px">… dan ' + (miss.length + deny.length - 80) + ' baris lainnya.</div>' : '') + '</details>' : '') +
+      '</div></div>' +
+      '<div class="card" style="margin-top:20px"><div class="card-h"><div><h3>Simpan sebagai periode</h3><p>Tahun Anggaran <b>' + ta + '</b>' + (dt ? ' · tanggal terbaca dari berkas, dapat Anda ubah' : ' · tanggal tidak terbaca, pilih secara manual') + '</p></div></div><div class="card-b">' +
+      mdPicker('x', ta, def) +
+      '<div class="row2"><div class="fg"><label>Kolom pagu pada berkas ini adalah</label><select class="sel" id="xPagu"><option value="murni"' + (pr.tipe === 'murni' ? ' selected' : '') + '>Pagu Murni</option><option value="perubahan"' + (pr.tipe === 'perubahan' ? ' selected' : '') + '>Pagu Perubahan</option><option value="none">Jangan ubah pagu (hanya realisasi &amp; angkas)</option></select></div>' +
+      '<div class="fg"><label>Pendapatan (PAD)</label><label class="chk" style="margin-top:12px"><input type="checkbox" id="xPad"' + (padOk.length ? ' checked' : ' disabled') + '> Ikut impor data PAD' + (padOk.length ? ' (' + padOk.length + ' unit)' : ' (tidak ada pada berkas)') + '</label></div></div>' +
+      '<div class="hint" id="xInfo" style="font-size:12.5px;color:var(--muted);margin-bottom:18px"></div>' +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn pri" id="xRun">' + ic('save', 15) + 'Simpan ke Aplikasi</button></div><div id="xRes"></div></div></div>';
+    mdBind(body, 'x', ta);
+    var info = function () { var pv = mdValue(body, 'x', ta), ex = periodsFor(ta).some(function (p) { return p.periode === pv.p; }); $('#xInfo', body).innerHTML = ex ? '<b>' + perName(ta, pv.p) + '</b> sudah ada — angka pada kolom yang diimpor akan <b>diperbarui</b>.' : '<b>' + perName(ta, pv.p) + '</b> belum ada — periode baru dibuat otomatis (pagu disalin dari periode terdekat sebelumnya).'; };
+    $('#xM', body).addEventListener('change', info); $('#xD', body).addEventListener('change', info); info();
+    $('#xRun', body).onclick = function () { ixRun(body, this); };
+  } catch (e) { body.innerHTML = ''; fail(e); }
+}
+async function ixRun(body, btn) {
+  var ta = IX.ta, pv = mdValue(body, 'x', ta), per = pv.p, mode = $('#xPagu', body).value, withPad = $('#xPad', body).checked;
+  if (!(await confirmBox('Simpan data', 'Simpan <b>' + IX.rows.length + '</b> sub kegiatan' + (withPad ? ' dan PAD' : '') + ' ke periode <b>' + perName(ta, per) + '</b>?'))) return;
+  busy(btn, true, 'Menyimpan…');
+  try {
+    var ps = periodsFor(ta);
+    if (!ps.some(function (p) { return p.periode === per; })) {
+      var prev = ps.filter(function (p) { return p.periode < per; }).pop() || ps[0];
+      await call('createPeriod', { ta: ta, tgl: pv.iso, copyFrom: prev ? prev.periode : 0, copyMode: 'pagu' });
+    }
+    var st = await call('struktur', { ta: ta, periode: per, dasar: 'perubahan', unit: 'ALL', jenis: '' });
+    var idx = {}; st.nodes.forEach(function (n) { if (n.leaf) idx[n.unit + '|' + n.kode] = n; });
+    var items = [];
+    IX.rows.forEach(function (r) {
+      var n = idx[r.unit + '|' + r.kode]; if (!n || !st.writable[n.unit]) return;
+      var it = { id: n.id, murni: n.raw.murni, perubahan: n.raw.perubahan, blud: n.raw.blud, realisasi: r.real, angkas: r.angkas };
+      if (mode !== 'none') { if (n.jenis === 'BLUD') it.blud = r.pagu; else if (mode === 'murni') it.murni = r.pagu; else it.perubahan = r.pagu; }
+      items.push(it);
+    });
+    for (var i = 0; i < items.length; i += 250) await call('saveNilai', { ta: ta, periode: per, items: items.slice(i, i + 250) });
+    var np = 0;
+    if (withPad && IX.pad.length) { var r2 = await call('savePad', { ta: ta, periode: per, items: IX.pad.map(function (p) { return { unit: p.unit, target: p.target, realisasi: p.realisasi, angkas: p.angkas }; }) }); np = r2.saved; }
+    await refreshBoot(); S.f.ta = ta; fillFilters(true); S.f.periode = per; fillPeriod(true);
+    $('#xRes', body).innerHTML = '<div class="stat" style="margin-top:18px"><div><b class="num">' + items.length + '</b><small>sub kegiatan tersimpan</small></div><div><b class="num">' + np + '</b><small>baris PAD tersimpan</small></div><div><b class="num" style="font-size:16px">' + perName(ta, per) + '</b><small>periode</small></div></div>' +
+      '<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn pri" id="xGo">Lihat di Struktur Anggaran</button><button class="btn" id="xDash">Buka Dashboard</button></div>';
+    $('#xGo', body).onclick = function () { go('struktur'); }; $('#xDash', body).onclick = function () { go('dashboard'); };
+    toast('Data ' + perName(ta, per) + ' tersimpan (' + items.length + ' sub kegiatan).');
+  } catch (e) { fail(e); }
+  busy(btn, false);
 }
 
 /* ------------------------- mobile: isian lewat lembar bawah ------------------------- */

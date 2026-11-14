@@ -503,3 +503,11 @@ table.st.mob{min-width:0;table-layout:auto}
 .remember small{color:var(--muted);font-size:12px}
 .btn-login{margin-top:18px}
 @media (min-width:1025px){.f-grid{grid-template-columns:minmax(120px,.7fr) minmax(230px,1.5fr) minmax(150px,1fr) minmax(170px,1fr) minmax(240px,1.6fr)}}
+
+/* ---------- impor Excel ---------- */
+.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:44px 20px;border:2px dashed var(--line);border-radius:18px;background:var(--surface-2);cursor:pointer;color:var(--ink-2);transition:.15s}
+.drop:hover,.drop.over{border-color:var(--forest-600);background:#eef5f1}
+.drop svg{color:var(--forest-600);margin-bottom:6px}
+.drop b{font-size:16px;color:var(--ink)}.drop span{font-size:13px;color:var(--muted)}
+details summary{outline:none}
+.stat{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}

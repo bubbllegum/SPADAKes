@@ -1,5 +1,5 @@
 /* SPADAKes service worker: app shell offline, API selalu langsung ke jaringan. */
-var VERSION = 'spadakes-v1.5.0';
+var VERSION = 'spadakes-v1.5.1';
 var SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/config.js', 'manifest.webmanifest',
   'icons/logo.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png'];
 

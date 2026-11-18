@@ -1030,22 +1030,23 @@ function xlParseRincian(sh, units) {
   var cP = 0, cR = 0, cK = 0, tipe = 'murni';
   Object.keys(R[hr]).forEach(function (k) {
     var t = String(R[hr][k]).replace(/\s+/g, ' ').trim().toUpperCase(), c = Number(k);
-    if (!cP && /^PAGU/.test(t)) { cP = c; tipe = /PERUBAHAN/.test(t) ? 'perubahan' : 'murni'; }
+    if (!cP && /^PAGU/.test(t)) { cP = c; tipe = /PERUBAHAN|APBD\s*-\s*P\b|\bAPBDP\b/.test(t) ? 'perubahan' : 'murni'; }
     else if (!cR && t === 'REALISASI') cR = c;
     else if (!cK && /ANGGARAN KAS|ANGKAS/.test(t) && t.indexOf('%') < 0) cK = c;
   });
   cP = cP || 3; cR = cR || 4; cK = cK || 7;
   var heads = []; for (r = 1; r < hr; r++) if (R[r] && R[r][1] != null) heads.push(R[r][1]);
-  var rows = [], cur = null, skipped = 0;
+  var rows = [], cur = null, tot = null;
   for (r = hr + 1; r <= sh.max; r++) {
     var row = R[r]; if (!row) continue;
     var a = row[1] == null ? '' : String(row[1]).trim(), b = row[2];
     if (!a) continue;
+    if ((/^urusan/i.test(a) || /^jumlah/i.test(a)) && !tot && row[cP] != null) { tot = { pagu: xlNum(row[cP]), real: xlNum(row[cR]), angkas: xlNum(row[cK]), lbl: a }; continue; }
     if (b == null || b === '') { var u = xlMatchUnit(a, units); if (u) cur = u.id; continue; }
     if (a.split('.').length !== 6 || !/^\d/.test(a)) continue;
     rows.push({ unit: cur, kode: a, uraian: String(b).replace(/\s+/g, ' ').trim(), pagu: xlNum(row[cP]), real: xlNum(row[cR]), angkas: xlNum(row[cK]) });
   }
-  return { rows: rows, tipe: tipe, heads: heads };
+  return { rows: rows, tipe: tipe, heads: heads, tot: tot };
 }
 function xlParsePad(sh, units) {
   var R = sh.rows, r, start = 0, out = [];
@@ -1063,9 +1064,9 @@ function xlParsePad(sh, units) {
   return out;
 }
 
-var IX = null;
+var IX = null, IXF = null;
 function pgImportXlsx(c) {
-  IX = null;
+  IX = null; IXF = null;
   c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Pengisian Data</div><h2>Input Data Bulan Lalu dari Excel</h2></div></div>' +
     '<div class="ctx"><span>Unggah berkas <b>RINCIAN REALISASI ANGGARAN DINKES Per &lt;tanggal&gt;.xlsx</b> (format yang sama dengan laporan). Aplikasi membaca kode sub kegiatan, pagu, realisasi, dan anggaran kas, mencocokkannya dengan struktur, lalu menyimpannya sebagai periode pada tanggal yang Anda pilih. Anda dapat meninjau hasilnya sebelum disimpan.</span></div>' +
     '<div class="card"><div class="card-b">' +
@@ -1077,32 +1078,58 @@ function pgImportXlsx(c) {
   ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
   drop.addEventListener('drop', function (e) { var f = e.dataTransfer && e.dataTransfer.files[0]; if (f) ixLoad(c, f); });
 }
+function ixMatch(nodes, rows) { // cocokkan unit+kode; bila kode kembar, pakai uraian lalu urutan
+  var idx = {}, used = {};
+  nodes.forEach(function (n) { if (n.leaf) (idx[n.unit + '|' + n.kode] = idx[n.unit + '|' + n.kode] || []).push(n); });
+  return rows.map(function (r) {
+    var c = (r.unit && idx[r.unit + '|' + r.kode]) || [], u = xlNorm(r.uraian), n = null;
+    c.forEach(function (x) { if (!n && !used[x.id] && xlNorm(x.uraian) === u) n = x; });
+    c.forEach(function (x) { if (!n && !used[x.id]) n = x; });
+    if (n) used[n.id] = 1;
+    return n;
+  });
+}
 async function ixLoad(c, file) {
   var body = $('#xBody', c);
   body.innerHTML = '<div class="card card-b"><div class="skel" style="width:40%"></div><br><div class="skel"></div></div>';
   try {
     if (!/\.xlsx$/i.test(file.name)) throw new Error('Gunakan berkas berformat .xlsx.');
-    var units = S.boot.units, sheets = await xlParse(await file.arrayBuffer());
-    var sr = sheets.filter(function (x) { return /rincian/i.test(x.name); })[0] || sheets[0];
-    if (!sr) throw new Error('Berkas tidak berisi lembar kerja.');
-    var rk = sheets.filter(function (x) { return /rekap/i.test(x.name); })[0] || sheets[1];
-    var pr = xlParseRincian(sr, units), pad = rk ? xlParsePad(rk, units) : [];
+    var units = S.boot.units, sheets = (IXF && IXF.file === file) ? IXF.sheets : await xlParse(await file.arrayBuffer());
+    var cands = [];
+    sheets.forEach(function (x) { try { var r = xlParseRincian(x, units); if (r.rows.length) cands.push({ sh: x, pr: r }); } catch (e) { } });
+    if (!cands.length) throw new Error('Tidak ada lembar berformat Rincian (judul kolom "KODE") di berkas ini.');
+    var fdt = xlFindDate([file.name.replace(/_/g, ' ')]);
+    var pick = IXF && IXF.file === file && IXF.sheet ? cands.filter(function (x) { return x.sh.name === IXF.sheet; })[0] : null;
+    if (!pick) {
+      var same = fdt ? cands.filter(function (x) { var d = xlFindDate(x.pr.heads.concat([x.sh.name])); return d && d.getTime() === fdt.getTime(); }) : [];
+      var pool = same.length ? same : cands, nonSiap = pool.filter(function (x) { return !/siap/i.test(x.sh.name); });
+      pool = nonSiap.length ? nonSiap : pool; pick = pool[pool.length - 1];
+    }
+    IXF = { file: file, sheets: sheets, sheet: pick.sh.name };
+    var sr = pick.sh, pr = pick.pr;
+    var rkName = sr.name.replace(/rincian/i, 'Rekap');
+    var rk = sheets.filter(function (x) { return x.name !== sr.name && x.name.toLowerCase() === rkName.toLowerCase(); })[0] ||
+      sheets.filter(function (x) { return /rekap/i.test(x.name) && !/siap/i.test(x.name); })[0] || sheets.filter(function (x) { return /rekap/i.test(x.name); })[0];
+    var pad = rk ? xlParsePad(rk, units) : [];
     var dt = xlFindDate(pr.heads.concat([sr.name, file.name]));
     var ta = dt ? dt.getFullYear() : Number(S.f.ta);
     if (S.boot.tas.indexOf(ta) < 0) throw new Error('Tahun Anggaran ' + ta + ' belum dibuat. Buat dulu melalui Input Realisasi → Periode & TA.');
     var ps = periodsFor(ta), ref = ps.length ? ps[ps.length - 1].periode : 1;
     var st = await call('struktur', { ta: ta, periode: ref, dasar: 'perubahan', unit: 'ALL', jenis: '' });
-    var idx = {}; st.nodes.forEach(function (n) { if (n.leaf) idx[n.unit + '|' + n.kode] = n; });
-    var ok = [], miss = [], deny = [];
-    pr.rows.forEach(function (r) { var n = r.unit && idx[r.unit + '|' + r.kode]; if (!n) miss.push(r); else if (!st.writable[n.unit]) deny.push(r); else ok.push(r); });
+    var mt = ixMatch(st.nodes, pr.rows), ok = [], miss = [], deny = [];
+    pr.rows.forEach(function (r, i) { var n = mt[i]; if (!n) miss.push(r); else if (!st.writable[n.unit]) deny.push(r); else ok.push(r); });
     var padOk = pad.filter(function (p) { return st.writable[p.unit]; });
     IX = { ta: ta, rows: ok, tipe: pr.tipe, pad: padOk, file: file.name };
     var sum = function (a, k) { return a.reduce(function (t, x) { return t + (x[k] || 0); }, 0); };
     var def = dt || defaultDate(ta);
     body.innerHTML =
       '<div class="card" style="margin-top:20px"><div class="card-h"><div><h3>Hasil pembacaan berkas</h3><p>' + esc(file.name) + ' · lembar “' + esc(sr.name) + '”</p></div></div><div class="card-b">' +
+      (cands.length > 1 ? '<div class="fg" style="max-width:520px"><label>Lembar yang dibaca (' + cands.length + ' lembar rincian di berkas ini)</label><select class="sel" id="xSheet">' + cands.map(function (x) { return '<option' + (x.sh === sr ? ' selected' : '') + '>' + esc(x.sh.name) + '</option>'; }).join('') + '</select>' + (cands.some(function (x) { return /siap/i.test(x.sh.name); }) ? '<div class="hint" style="font-size:12px;color:var(--muted);margin-top:6px">Lembar bertanda <b>SIAP</b> adalah data mentah; biasanya yang dipakai adalah lembar tanpa SIAP (sesuai lembar Rekap).</div>' : '') + '</div>' : '') +
       '<div class="stat"><div><b class="num">' + ok.length + '</b><small>sub kegiatan cocok &amp; siap diimpor</small></div><div><b class="num">' + miss.length + '</b><small>tidak ditemukan di struktur</small></div><div><b class="num">' + deny.length + '</b><small>dilewati (tanpa hak akses unit)</small></div><div><b class="num">' + padOk.length + '</b><small>baris PAD terbaca</small></div></div>' +
-      '<table class="t" style="margin-top:18px"><thead><tr><th class="l">Jumlah dari baris yang cocok</th><th>' + (pr.tipe === 'perubahan' ? 'Pagu Perubahan' : 'Pagu Murni') + '</th><th>Realisasi</th><th>Anggaran Kas</th></tr></thead><tbody><tr><td class="l"><b>' + ok.length + ' sub kegiatan</b></td><td>' + rp(sum(ok, 'pagu')) + '</td><td>' + rp(sum(ok, 'real')) + '</td><td>' + rp(sum(ok, 'angkas')) + '</td></tr></tbody></table>' +
+      '<table class="t" style="margin-top:18px"><thead><tr><th class="l">Jumlah dari baris yang cocok</th><th>' + (pr.tipe === 'perubahan' ? 'Pagu Perubahan' : 'Pagu Murni') + '</th><th>Realisasi</th><th>Anggaran Kas</th></tr></thead><tbody><tr><td class="l"><b>' + ok.length + ' sub kegiatan</b></td><td>' + rp(sum(ok, 'pagu')) + '</td><td>' + rp(sum(ok, 'real')) + '</td><td>' + rp(sum(ok, 'angkas')) + '</td></tr>' +
+      (pr.tot ? '<tr><td class="l">Total tertulis di berkas</td><td>' + rp(pr.tot.pagu) + '</td><td>' + rp(pr.tot.real) + '</td><td>' + rp(pr.tot.angkas) + '</td></tr>' +
+        '<tr><td class="l"><b>Selisih</b></td>' + ['pagu', 'real', 'angkas'].map(function (k) { var d = Math.round(sum(ok, k) - pr.tot[k]); return '<td style="color:' + (Math.abs(d) >= 1 ? 'var(--bad)' : 'var(--good)') + ';font-weight:700">' + (Math.abs(d) >= 1 ? rp(d) : 'Sama ✓') + '</td>'; }).join('') + '</tr>' : '') +
+      '</tbody></table>' + (pr.tot && ['pagu', 'real', 'angkas'].some(function (k) { return Math.abs(sum(ok, k) - pr.tot[k]) >= 1; }) ? '<div class="hint" style="font-size:12.5px;color:var(--bad);margin-top:8px">Ada selisih dengan total berkas — periksa daftar baris yang tidak diimpor di bawah.</div>' : '') +
       (miss.length || deny.length ? '<details style="margin-top:16px"><summary style="cursor:pointer;font-weight:700">Lihat ' + (miss.length + deny.length) + ' baris yang tidak diimpor</summary><table class="t" style="margin-top:10px"><thead><tr><th class="l">Kode</th><th class="l">Uraian</th><th class="l">Alasan</th></tr></thead><tbody>' +
         miss.concat(deny).slice(0, 80).map(function (r) { return '<tr><td class="l num">' + esc(r.kode) + '</td><td class="l">' + esc(r.uraian) + '</td><td class="l">' + (miss.indexOf(r) >= 0 ? (r.unit ? 'Kode tidak ada pada struktur unit ini' : 'Unit tidak dikenali') : 'Tidak berhak mengubah unit') + '</td></tr>'; }).join('') + '</tbody></table>' + (miss.length + deny.length > 80 ? '<div class="hint" style="font-size:12px;color:var(--muted);margin-top:8px">… dan ' + (miss.length + deny.length - 80) + ' baris lainnya.</div>' : '') + '</details>' : '') +
       '</div></div>' +
@@ -1116,6 +1143,7 @@ async function ixLoad(c, file) {
     var info = function () { var pv = mdValue(body, 'x', ta), ex = periodsFor(ta).some(function (p) { return p.periode === pv.p; }); $('#xInfo', body).innerHTML = ex ? '<b>' + perName(ta, pv.p) + '</b> sudah ada — angka pada kolom yang diimpor akan <b>diperbarui</b>.' : '<b>' + perName(ta, pv.p) + '</b> belum ada — periode baru dibuat otomatis (pagu disalin dari periode terdekat sebelumnya).'; };
     $('#xM', body).addEventListener('change', info); $('#xD', body).addEventListener('change', info); info();
     $('#xRun', body).onclick = function () { ixRun(body, this); };
+    var xs = $('#xSheet', body); if (xs) xs.onchange = function () { IXF.sheet = xs.value; ixLoad(c, file); };
   } catch (e) { body.innerHTML = ''; fail(e); }
 }
 async function ixRun(body, btn) {
@@ -1129,10 +1157,9 @@ async function ixRun(body, btn) {
       await call('createPeriod', { ta: ta, tgl: pv.iso, copyFrom: prev ? prev.periode : 0, copyMode: 'pagu' });
     }
     var st = await call('struktur', { ta: ta, periode: per, dasar: 'perubahan', unit: 'ALL', jenis: '' });
-    var idx = {}; st.nodes.forEach(function (n) { if (n.leaf) idx[n.unit + '|' + n.kode] = n; });
-    var items = [];
-    IX.rows.forEach(function (r) {
-      var n = idx[r.unit + '|' + r.kode]; if (!n || !st.writable[n.unit]) return;
+    var mt = ixMatch(st.nodes, IX.rows), items = [];
+    IX.rows.forEach(function (r, i) {
+      var n = mt[i]; if (!n || !st.writable[n.unit]) return;
       var it = { id: n.id, murni: n.raw.murni, perubahan: n.raw.perubahan, blud: n.raw.blud, realisasi: r.real, angkas: r.angkas };
       if (mode !== 'none') { if (n.jenis === 'BLUD') it.blud = r.pagu; else if (mode === 'murni') it.murni = r.pagu; else it.perubahan = r.pagu; }
       items.push(it);

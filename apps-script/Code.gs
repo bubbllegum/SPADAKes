@@ -21,12 +21,14 @@ var SCHEMA = {
   PAD: ['key', 'ta', 'periode', 'unit', 'target', 'realisasi', 'angkas', 'updatedBy', 'updatedAt'],
   Log: ['ts', 'user', 'aksi', 'detail'],
   Arsip: ['ts', 'user', 'nama', 'tipe', 'ta', 'periode', 'url', 'fileId'],
-  Config: ['key', 'value']
+  Config: ['key', 'value'],
+  Paparan: ['id', 'judul', 'ket', 'fileId', 'nama', 'pages', 'size', 'cover', 'urutan', 'createdBy', 'createdAt', 'updatedAt']
 };
 var TEXT_COLS = {
   Users: ['username', 'hash', 'salt', 'unit', 'createdAt', 'lastLogin'], Units: ['id'], Struktur: ['id', 'unit', 'kode', 'uraian', 'parentId'],
   Nilai: ['key', 'subId', 'updatedAt'], Periode: ['createdAt'], PAD: ['key', 'unit', 'updatedAt'], Log: ['ts', 'detail'],
-  Arsip: ['ts', 'nama', 'url', 'fileId'], Config: ['key', 'value']
+  Arsip: ['ts', 'nama', 'url', 'fileId'], Config: ['key', 'value'],
+  Paparan: ['id', 'judul', 'ket', 'fileId', 'nama', 'cover', 'createdBy', 'createdAt', 'updatedAt']
 };
 /* ---------- PERIODE = TANGGAL DATA ----------
  * Setiap periode adalah satu tanggal (bulan + tanggal). Nomor periode disimpan sebagai
@@ -97,6 +99,12 @@ var ROUTES = {
   updateNode: { fn: function (u, p) { return apiUpdateNode_(u, p); } },
   deleteNode: { fn: function (u, p) { return apiDeleteNode_(u, p); } },
   createPeriod: { admin: true, fn: function (u, p) { return apiCreatePeriod_(u, p); } },
+  paparanList: { fn: function (u, p) { return apiPaparanList_(u, p); } },
+  paparanFile: { fn: function (u, p) { return apiPaparanFile_(u, p); } },
+  paparanAdd: { admin: true, fn: function (u, p) { return apiPaparanAdd_(u, p); } },
+  paparanUpdate: { admin: true, fn: function (u, p) { return apiPaparanUpdate_(u, p); } },
+  paparanDelete: { admin: true, fn: function (u, p) { return apiPaparanDelete_(u, p); } },
+  deletePeriod: { admin: true, fn: function (u, p) { return apiDeletePeriod_(u, p); } },
   setPeriodStatus: { admin: true, fn: function (u, p) { return apiSetPeriodStatus_(u, p); } },
   createTA: { admin: true, fn: function (u, p) { return apiCreateTA_(u, p); } },
   importPrev: { fn: function (u, p) { return apiImportPrev_(u, p); } },
@@ -144,8 +152,8 @@ function ensureSetup_() {
   if (_SETUP_DONE || _IN_SETUP) return;
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty('SETUP_V') === '1') {
-    var chk = ss_().getSheetByName('Struktur');
-    if (chk) { _SETUP_DONE = true; return; }
+    var chk = ss_().getSheetByName('Struktur'), chk2 = ss_().getSheetByName('Paparan');
+    if (chk && chk2) { _SETUP_DONE = true; return; }
   }
   setup();
   _SETUP_DONE = true;

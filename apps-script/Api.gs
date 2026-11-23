@@ -473,6 +473,31 @@ function apiSetPeriodStatus_(u, p) {
   return true;
 }
 
+/** Hapus periode beserta seluruh isiannya (Nilai & PAD). Hanya Admin. */
+function deleteWhere_(name, pred) {
+  var cols = SCHEMA[name], sh = ss_().getSheetByName(name), last = sh.getLastRow();
+  if (last < 2) return 0;
+  var rng = sh.getRange(2, 1, last - 1, cols.length), vals = rng.getValues(), keep = [], del = 0;
+  vals.forEach(function (r) { var o = {}; cols.forEach(function (k, i) { o[k] = r[i]; }); if (pred(o)) del++; else keep.push(r); });
+  if (!del) return 0;
+  rng.clearContent();
+  if (keep.length) sh.getRange(2, 1, keep.length, cols.length).setValues(keep);
+  invalidate_(name);
+  return del;
+}
+function apiDeletePeriod_(u, p) {
+  var ta = Number(p.ta), per = Number(p.periode);
+  if (!periodRow_(ta, per)) throw new Error('Periode tidak ditemukan.');
+  var lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    var n = deleteWhere_('Nilai', function (o) { return Number(o.ta) === ta && Number(o.periode) === per; });
+    var pd = deleteWhere_('PAD', function (o) { return Number(o.ta) === ta && Number(o.periode) === per; });
+    deleteWhere_('Periode', function (o) { return Number(o.ta) === ta && Number(o.periode) === per; });
+    log_(u.username, 'Hapus periode', perName_(ta, per) + ' (' + n + ' baris isian, ' + pd + ' baris PAD)');
+    return { nilai: n, pad: pd };
+  } finally { lock.releaseLock(); }
+}
+
 function apiCreateTA_(u, p) {
   var ta = Number(p.ta), from = Number(p.fromTa);
   if (!(ta >= 2000 && ta <= 2100)) throw new Error('Tahun anggaran tidak valid.');
@@ -695,4 +720,65 @@ function apiLogs_(u, p) {
 function apiArsip_(u) {
   return readTable_('Arsip').filter(function (r) { return u.role !== 'Unit' || r.user === u.username; }).reverse().slice(0, 200)
     .map(function (r) { return { ts: r.ts, user: r.user, nama: r.nama, tipe: r.tipe, ta: r.ta, periode: r.periode, url: r.url }; });
+}
+
+
+/* ===================================================================== *
+ *  MATERI PAPARAN (PDF disimpan di Google Drive milik akun Apps Script)
+ * ===================================================================== */
+var PAPARAN_FOLDER = 'SPADAKes - Materi Paparan';
+var PAPARAN_MAX = 30 * 1024 * 1024;
+function paparanFolder_() {
+  var it = DriveApp.getFoldersByName(PAPARAN_FOLDER);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(PAPARAN_FOLDER);
+}
+function paparanRow_(id) {
+  var r = readTable_('Paparan').filter(function (x) { return String(x.id) === String(id); })[0];
+  if (!r) throw new Error('Materi paparan tidak ditemukan.');
+  return r;
+}
+function apiPaparanList_(u) {
+  return readTable_('Paparan').map(function (r) {
+    return { id: String(r.id), judul: String(r.judul), ket: String(r.ket || ''), pages: Number(r.pages) || 0, size: Number(r.size) || 0, cover: String(r.cover || ''),
+      urutan: Number(r.urutan) || 0, createdBy: String(r.createdBy || ''), createdAt: String(r.createdAt || ''), updatedAt: String(r.updatedAt || r.createdAt || '') };
+  }).sort(function (a, b) { return (a.urutan - b.urutan) || (a.createdAt < b.createdAt ? 1 : -1); });
+}
+function apiPaparanAdd_(u, p) {
+  var judul = String(p.judul || '').trim(), b64 = String(p.base64 || '');
+  if (!judul) throw new Error('Judul materi wajib diisi.');
+  if (!b64) throw new Error('Berkas PDF belum dipilih.');
+  var bytes = Utilities.base64Decode(b64);
+  if (bytes.length > PAPARAN_MAX) throw new Error('Ukuran PDF maksimal 30 MB.');
+  if (!(bytes[0] === 37 && bytes[1] === 80 && bytes[2] === 68 && bytes[3] === 70)) throw new Error('Berkas bukan PDF yang valid.');
+  var nama = String(p.nama || (judul + '.pdf')).replace(/[\\/:*?"<>|]+/g, ' ').slice(0, 120);
+  var f = paparanFolder_().createFile(Utilities.newBlob(bytes, 'application/pdf', nama));
+  var cover = String(p.cover || ''); if (cover.length > 48000) cover = '';
+  var rows = readTable_('Paparan'), ur = rows.reduce(function (m, x) { return Math.max(m, Number(x.urutan) || 0); }, 0) + 1, ts = now_();
+  var id = 'P' + Utilities.getUuid().replace(/-/g, '').slice(0, 10);
+  appendRows_('Paparan', [{ id: id, judul: judul.slice(0, 120), ket: String(p.ket || '').slice(0, 300), fileId: f.getId(), nama: nama, pages: Number(p.pages) || 0, size: bytes.length, cover: cover, urutan: ur, createdBy: u.username, createdAt: ts, updatedAt: ts }]);
+  log_(u.username, 'Tambah paparan', judul + ' (' + (Number(p.pages) || 0) + ' slide)');
+  return { id: id };
+}
+function apiPaparanUpdate_(u, p) {
+  var r = paparanRow_(p.id), o = { updatedAt: now_() };
+  if (p.judul !== undefined) { if (!String(p.judul).trim()) throw new Error('Judul materi wajib diisi.'); o.judul = String(p.judul).trim().slice(0, 120); }
+  if (p.ket !== undefined) o.ket = String(p.ket).slice(0, 300);
+  if (p.urutan !== undefined) o.urutan = Number(p.urutan) || 0;
+  updateRow_('Paparan', r._row, o);
+  log_(u.username, 'Ubah paparan', o.judul || r.judul);
+  return { ok: true };
+}
+function apiPaparanDelete_(u, p) {
+  var r = paparanRow_(p.id);
+  try { DriveApp.getFileById(String(r.fileId)).setTrashed(true); } catch (e) { }
+  deleteWhere_('Paparan', function (o) { return String(o.id) === String(r.id); });
+  log_(u.username, 'Hapus paparan', String(r.judul));
+  return { ok: true };
+}
+/** Unduh PDF per potongan agar respons tidak terlalu besar. */
+function apiPaparanFile_(u, p) {
+  var r = paparanRow_(p.id), off = Math.max(0, Number(p.offset) || 0), len = Math.min(Number(p.length) || 4194304, 6291456);
+  var bytes = DriveApp.getFileById(String(r.fileId)).getBlob().getBytes();
+  var part = bytes.slice(off, off + len);
+  return { size: bytes.length, offset: off, base64: Utilities.base64Encode(part) };
 }

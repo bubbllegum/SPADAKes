@@ -58,7 +58,7 @@ function apiUrl() {
   var u = ''; try { u = localStorage.getItem('spadakes_api') || ''; } catch (e) { }
   return u || (window.SPADAKES_CONFIG && SPADAKES_CONFIG.apiUrl) || '';
 }
-var RC = {}, RC_TTL = 120000, READ_ACTIONS = { dashboard: 1, struktur: 1, pembanding: 1, pad: 1, rekap: 1, units: 1, arsip: 1, logs: 1, users: 1 };
+var RC = {}, RC_TTL = 120000, READ_ACTIONS = { paparanList: 1, dashboard: 1, struktur: 1, pembanding: 1, pad: 1, rekap: 1, units: 1, arsip: 1, logs: 1, users: 1 };
 function rcClear() { RC = {}; }
 function call(action, payload) {
   var ck = null;
@@ -70,6 +70,17 @@ function call(action, payload) {
   return callRaw(action, payload).then(function (d) { if (ck) RC[ck] = { t: Date.now(), d: JSON.stringify(d) }; return d; });
 }
 function callRaw(action, payload) {
+  if (window.SPADAKES_DEMO) return new Promise(function (resolve, reject) { // mode uji coba: server tiruan di browser
+    loader(1);
+    setTimeout(function () {
+      Promise.resolve().then(function () { return SPADAKES_DEMO.call(S.token, action, payload || {}); }).catch(function (e) { return { ok: false, error: e.message }; }).then(function (r) {
+        loader(-1);
+        if (r && r.ok) return resolve(r.data);
+        if (r && r.expired && action !== 'login') forceLogout(r.error);
+        reject(new Error(r ? r.error : 'Terjadi kesalahan.'));
+      });
+    }, 30);
+  });
   return new Promise(function (resolve, reject) {
     var url = apiUrl();
     if (!url) { var h = location.hostname; if (h === 'localhost' || h === '127.0.0.1') url = '/api'; }
@@ -132,6 +143,9 @@ function isMobile() { return window.matchMedia('(max-width:720px)').matches; }
 
 /* ------------------------- icons ------------------------- */
 var IC = {
+  ppt: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 16v4M8 20h8M10 8l4 2-4 2z"/>',
+  play: '<path d="M7 4l13 8-13 8z"/>', full: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>', grid: '<path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>', left: '<path d="M15 5l-7 7 7 7"/>', right: '<path d="M9 5l7 7-7 7"/>',
   dash: '<path d="M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z"/>',
   tree: '<path d="M4 5h16M4 10h16M4 15h10M4 20h10"/>',
   imp: '<path d="M12 3v12M7 8l5-5 5 5M4 17v4h16v-4"/>',
@@ -153,6 +167,7 @@ function ic(n, s) { return '<svg width="' + (s || 17) + '" height="' + (s || 17)
 /* ------------------------- navigasi ------------------------- */
 var PAGES = {
   dashboard: { t: 'Dashboard', crumb: 'Dashboard Pengendalian Deviasi Anggaran', ic: 'dash', grp: 'MENU UTAMA', filters: ['ta', 'per', 'jenis', 'dasar', 'unit'] },
+  paparan: { t: 'Materi Paparan', crumb: 'Materi Paparan', ic: 'ppt', grp: 'MENU UTAMA', filters: [] },
   struktur: { t: 'Input Realisasi', crumb: 'Input Realisasi Anggaran per Unit', ic: 'tree', grp: 'MENU UTAMA', filters: ['ta', 'per', 'jenis', 'dasar', 'unit'] },
   importPrev: { t: 'Import Data Periode Sebelumnya', crumb: 'Import Data Periode Sebelumnya', ic: 'imp', grp: 'MENU UTAMA', filters: ['ta', 'unit'], write: true },
   importXlsx: { t: 'Input Data dari Excel', crumb: 'Input Data Bulan Lalu dari Excel', ic: 'xls', grp: 'MENU UTAMA', filters: [], write: true },
@@ -228,7 +243,7 @@ function render() {
   updateFSum();
   var c = $('#content');
   c.innerHTML = '<div class="card card-b"><div class="skel" style="width:30%"></div><br><div class="skel"></div><br><div class="skel" style="width:70%"></div></div>';
-  ({ dashboard: pgDashboard, struktur: pgStruktur, importPrev: pgImport, importXlsx: pgImportXlsx, pembanding: pgPembanding, pad: pgPad, rekap: pgRekap, riwayat: pgRiwayat, arsip: pgArsip, unit: pgUnit, akun: pgAkun })[S.page](c);
+  ({ dashboard: pgDashboard, paparan: pgPaparan, struktur: pgStruktur, importPrev: pgImport, importXlsx: pgImportXlsx, pembanding: pgPembanding, pad: pgPad, rekap: pgRekap, riwayat: pgRiwayat, arsip: pgArsip, unit: pgUnit, akun: pgAkun })[S.page](c);
 }
 
 /* ------------------------- filter ------------------------- */
@@ -399,6 +414,7 @@ function chartDonut(el, parts, center) {
  * ===================================================================== */
 var _dash = null;
 async function pgDashboard(c) {
+  setTimeout(pprDashFill, 0);
   try { _dash = await call('dashboard', fp()); } catch (e) { c.innerHTML = '<div class="card empty"><b>Gagal memuat</b>' + esc(e.message) + '</div>'; return; }
   var d = _dash, k = d.kpi, amb = d.ambang, nU = d.perUnit.length;
   var bad = Math.abs(k.dev) > amb;
@@ -414,6 +430,7 @@ async function pgDashboard(c) {
     kpi('Pendapatan PAD', d.pad.real, d.pad.target ? pct(pctOf(d.pad.real, d.pad.target)) + ' dari target ' + short(d.pad.target) : 'Belum ada target PAD', 'pad', '#f2eef8', '#6c4fa3') +
     '<div class="card kpi ' + (bad ? 'dev-bad' : 'dev-ok') + '" style="--tint:' + (bad ? '#fbe9e6' : '#e6f4ec') + ';--tc:' + (bad ? 'var(--bad)' : 'var(--ok)') + '"><span class="ic">' + ic('swap', 20) + '</span><small>Deviasi</small><div class="v num">' + pct(k.dev) + '</div><div class="full">Real ' + pct(k.realPct) + ' − Angkas ' + pct(k.angkasPct) + '</div><div class="s">' + (bad ? 'Melebihi' : 'Dalam') + ' ambang ' + amb + '%</div></div>' +
     '</div>' +
+    '<div id="pprDash"></div>' +
     '<div class="grid2"><div class="card"><div class="card-h"><div><h3>Tren Realisasi &amp; Anggaran Kas</h3><p>Nilai kumulatif per tanggal data pada TA ' + d.ta + '</p></div><div class="sp"></div><div class="lgd"><span><i style="background:#245c50"></i>Realisasi</span><span><i style="background:#d8bb7f"></i>Angkas s/d</span></div></div><div class="card-b"><div id="chTrend"></div></div></div>' +
     '<div class="card"><div class="card-h"><div><h3>Status Unit Kerja</h3><p>Pemantauan pengisian ' + perName(d.ta, d.periode) + '</p></div><div class="sp"></div><span class="pill mut">' + nU + ' unit</span></div><div class="card-b ulist">' +
     d.perUnit.map(function (u) {
@@ -1224,6 +1241,255 @@ function drawStrukturMobile() {
 (function () { var o = drawStruktur; drawStruktur = function () { return isMobile() ? drawStrukturMobile() : o(); }; })();
 document.addEventListener('click', function (e) { var b = e.target.closest('[data-fill]'); if (b) fillSheet(b.dataset.fill); });
 
+
+/* ===================================================================== *
+ *  MATERI PAPARAN — PDF diunggah Admin, disimpan di Google Drive.
+ *  Klik materi = langsung dipaparkan (layar penuh, render PDF dengan pdf.js).
+ * ===================================================================== */
+var PPL = null, PDOC = {}, PV = null;
+function isAdm() { return S.boot && S.boot.user && S.boot.user.role === 'Admin'; }
+function sizeTxt(b) { return b >= 1048576 ? (b / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB'; }
+var _pdfLib = null;
+function pdfLib() {
+  if (_pdfLib) return _pdfLib;
+  var load = function (src) { return new Promise(function (res, rej) { var s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = function () { rej(new Error('Gagal memuat pembaca PDF.')); }; document.head.appendChild(s); }); };
+  var fileMode = location.protocol === 'file:';
+  _pdfLib = (fileMode ? load('js/vendor/pdf.worker.min.js') : Promise.resolve()).then(function () { return load('js/vendor/pdf.min.js'); }).then(function () {
+    var L = window.pdfjsLib; L.GlobalWorkerOptions.workerSrc = new URL('js/vendor/pdf.worker.min.js', location.href).href; return L;
+  });
+  _pdfLib.catch(function () { _pdfLib = null; });
+  return _pdfLib;
+}
+// cache PDF di perangkat (IndexedDB) agar paparan berikutnya langsung tampil
+var _idb = null;
+function idb() {
+  if (_idb) return _idb;
+  _idb = new Promise(function (res, rej) {
+    try {
+      var r = indexedDB.open('spadakes_paparan', 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore('pdf'); };
+      r.onsuccess = function () { var db = r.result; db.onversionchange = function () { db.close(); _idb = null; }; res(db); };
+      r.onerror = function () { rej(r.error); }; r.onblocked = function () { rej(new Error('blocked')); };
+    } catch (e) { rej(e); }
+  });
+  _idb.catch(function () { _idb = null; });
+  return _idb;
+}
+function idbGet(k) { return idb().then(function (db) { return new Promise(function (res) { var q = db.transaction('pdf').objectStore('pdf').get(k); q.onsuccess = function () { res(q.result || null); }; q.onerror = function () { res(null); }; }); }).catch(function () { return null; }); }
+function idbPut(k, v) { return idb().then(function (db) { return new Promise(function (res) { var tx = db.transaction('pdf', 'readwrite'); tx.objectStore('pdf').put(v, k); tx.oncomplete = res; tx.onerror = res; }); }).catch(function () { }); }
+function idbDel(k) { return idb().then(function (db) { db.transaction('pdf', 'readwrite').objectStore('pdf').delete(k); }).catch(function () { }); }
+function b64ToBytes(s) { var bin = atob(s), u = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+function bytesToB64(u8) { var s = '', CH = 0x8000; for (var i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i + CH)); return btoa(s); }
+
+async function pprList(force) { if (!PPL || force) PPL = await call('paparanList', {}); return PPL; }
+async function pprDoc(m, onProg) {
+  if (PDOC[m.id]) return PDOC[m.id];
+  var L = await pdfLib(), buf = await idbGet(m.id);
+  if (!buf || (m.size && buf.byteLength !== m.size)) {
+    var off = 0, size = m.size || 1, parts = [];
+    do {
+      var c = await callRaw('paparanFile', { id: m.id, offset: off, length: 6291456 });
+      var u = b64ToBytes(c.base64); parts.push(u); off += u.length; size = c.size;
+      if (onProg) onProg(Math.min(99, Math.round(off / size * 100)));
+    } while (off < size && u.length);
+    var all = new Uint8Array(off), p = 0; parts.forEach(function (x) { all.set(x, p); p += x.length; });
+    buf = all.buffer; idbPut(m.id, buf);
+  }
+  PDOC[m.id] = await L.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
+  return PDOC[m.id];
+}
+async function pdfToCanvas(doc, n, w, h) {
+  var pg = await doc.getPage(n), v1 = pg.getViewport({ scale: 1 }), sc = Math.min(w / v1.width, h / v1.height), vp = pg.getViewport({ scale: sc });
+  var cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+  await pg.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+  return cv;
+}
+
+function pprCard(m) {
+  return '<div class="ppr-card" role="button" tabindex="0" data-pp="' + esc(m.id) + '" title="Paparkan: ' + esc(m.judul) + '">' +
+    '<span class="ppr-th">' + (m.cover ? '<img src="' + esc(m.cover) + '" alt="">' : '<span class="ppr-ph">' + ic('ppt', 34) + '</span>') +
+    '<span class="ppr-play">' + ic('play', 20) + '</span><span class="ppr-no">' + m.pages + ' slide</span></span>' +
+    '<span class="ppr-tx"><b>' + esc(m.judul) + '</b>' + (m.ket ? '<small>' + esc(m.ket) + '</small>' : '') + '<em>' + esc((m.createdAt || '').slice(0, 10).split('-').reverse().join('/')) + ' · ' + sizeTxt(m.size) + '</em></span>' +
+    (isAdm() ? '<span class="ppr-adm"><button class="btn sm" data-ppe="' + esc(m.id) + '">' + ic('edit', 13) + 'Ubah</button><button class="btn sm ppr-del" data-ppd="' + esc(m.id) + '">Hapus</button></span>' : '') + '</div>';
+}
+async function pprDashFill() {
+  var box = $('#pprDash'); if (!box) { if (S.page === 'dashboard') setTimeout(pprDashFill, 300); return; }
+  var L; try { L = await pprList(); } catch (e) { box.innerHTML = ''; return; }
+  if (!$('#pprDash')) return;
+  if (!L.length && !isAdm()) { box.innerHTML = ''; return; }
+  box.innerHTML = '<div class="card ppr-dash"><div class="card-h"><div><h3>Materi Paparan</h3><p>' + (L.length ? L.length + ' materi · klik materi untuk langsung memaparkan' : 'Belum ada materi paparan') + '</p></div><div class="sp"></div>' +
+    (isAdm() ? '<button class="btn" data-ppadd>' + ic('plus', 15) + 'Tambah Paparan</button>' : '') + '<button class="btn" data-go="paparan">' + ic('grid', 15) + 'Lihat semua</button></div>' +
+    '<div class="card-b">' + (L.length ? '<div class="ppr-strip">' + L.map(pprCard).join('') + '</div>' : '<div class="empty" style="padding:18px"><b>Belum ada materi</b>Gunakan tombol Tambah Paparan lalu unggah berkas PDF dari PowerPoint.</div>') + '</div></div>';
+}
+async function pgPaparan(c) {
+  var L; try { L = await pprList(true); } catch (e) { c.innerHTML = '<div class="card empty"><b>Gagal memuat</b>' + esc(e.message) + '</div>'; return; }
+  c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Paparan</div><h2>Materi Paparan</h2></div><div class="sp"></div>' +
+    (isAdm() ? '<button class="btn pri" data-ppadd>' + ic('plus', 15) + 'Tambah Paparan</button>' : '') + '</div>' +
+    '<div class="ctx"><span>Klik salah satu materi — layar langsung berganti ke <b>mode paparan penuh</b>. Gunakan <b>← →</b> atau klik kiri/kanan layar untuk pindah slide, <b>G</b> daftar slide, <b>F</b> layar penuh, <b>Esc</b> keluar.' + (isAdm() ? ' Materi baru ditambahkan dari berkas <b>PDF</b> (PowerPoint → Simpan Sebagai → PDF).' : '') + '</span></div>' +
+    (L.length ? '<div class="ppr-grid">' + L.map(pprCard).join('') + '</div>' :
+      '<div class="card empty"><b>Belum ada materi paparan</b>' + (isAdm() ? 'Gunakan tombol Tambah Paparan di kanan atas, lalu unggah berkas PDF dari PowerPoint.' : 'Materi akan tampil setelah ditambahkan oleh Admin.') + '</div>');
+}
+function pprAfterChange() { PPL = null; if (S.page === 'paparan' || S.page === 'dashboard') render(); }
+
+function pprAddModal() {
+  var F = null;
+  var mm = modal({ title: 'Tambah Materi Paparan', body:
+    '<label class="drop" id="ppDrop" style="margin-bottom:16px"><input type="file" id="ppFile" accept="application/pdf,.pdf" hidden>' + ic('ppt', 30) + '<b>Pilih berkas PDF</b><span>atau seret berkas ke sini · maks. 30 MB</span></label>' +
+    '<div id="ppPrev"></div>' +
+    '<div class="fg"><label>Judul materi</label><input class="txt" id="ppJudul" maxlength="120" placeholder="mis. Paparan Implementasi SPADAKes"></div>' +
+    '<div class="fg"><label>Keterangan (opsional)</label><input class="txt" id="ppKet" maxlength="300" placeholder="mis. PKP XXIV · Pandeglang 2026"></div>' +
+    '<div class="hint" style="font-size:12px;color:var(--muted);line-height:1.5">Di PowerPoint: <b>File → Save As → PDF</b>. Tampilan slide akan sama persis dengan di PowerPoint (animasi tidak ikut).</div>',
+    buttons: [{ label: 'Batal' }, { label: ic('save', 15) + 'Simpan Materi', cls: 'pri', click: async function (close, m, btn) {
+      var judul = $('#ppJudul', m).value.trim();
+      if (!F) return toast('Pilih berkas PDF terlebih dahulu.', true);
+      if (!judul) return toast('Judul materi wajib diisi.', true);
+      busy(btn, true, 'Mengunggah… mohon tunggu');
+      try {
+        var r = await call('paparanAdd', { judul: judul, ket: $('#ppKet', m).value.trim(), nama: F.name, pages: F.pages, cover: F.cover, base64: bytesToB64(F.u8) });
+        idbPut(r.id, F.u8.buffer.slice(0)); close(); toast('Materi “' + esc(judul) + '” ditambahkan.'); pprAfterChange();
+      } catch (e) { busy(btn, false); fail(e); }
+    } }] });
+  var m = mm.root, inp = $('#ppFile', m), drop = $('#ppDrop', m);
+  var take = async function (file) {
+    if (!file) return;
+    var prev = $('#ppPrev', m); F = null;
+    if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') return toast('Pilih berkas berformat PDF.', true);
+    if (file.size > 30 * 1048576) return toast('Ukuran PDF ' + sizeTxt(file.size) + ' melebihi 30 MB. Kecilkan dulu (PowerPoint → Compress Pictures) lalu simpan ulang sebagai PDF.', true);
+    prev.innerHTML = '<div class="ppr-up"><div class="skel" style="width:100%;height:100%"></div></div>';
+    try {
+      var u8 = new Uint8Array(await file.arrayBuffer());
+      if (!(u8[0] === 37 && u8[1] === 80 && u8[2] === 68 && u8[3] === 70)) throw new Error('Berkas ini bukan PDF yang valid.');
+      var L = await pdfLib(), doc = await L.getDocument({ data: u8.slice(0) }).promise, cv = await pdfToCanvas(doc, 1, 480, 300);
+      var q = 0.72, cover = cv.toDataURL('image/jpeg', q); while (cover.length > 45000 && q > 0.3) { q -= 0.12; cover = cv.toDataURL('image/jpeg', q); }
+      F = { name: file.name, u8: u8, pages: doc.numPages, cover: cover };
+      prev.innerHTML = '<div class="ppr-up"><img src="' + cover + '" alt=""><div><b>' + esc(file.name) + '</b><span>' + doc.numPages + ' slide · ' + sizeTxt(file.size) + '</span></div></div>';
+      var j = $('#ppJudul', m); if (!j.value) j.value = file.name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim();
+      doc.destroy();
+    } catch (e) { prev.innerHTML = ''; fail(e); }
+  };
+  inp.onchange = function () { take(inp.files[0]); };
+  ['dragover', 'dragenter'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+  ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
+  drop.addEventListener('drop', function (e) { take(e.dataTransfer && e.dataTransfer.files[0]); });
+}
+function pprEditModal(m0) {
+  modal({ title: 'Ubah Materi Paparan', body:
+    '<div class="fg"><label>Judul materi</label><input class="txt" id="peJudul" maxlength="120" value="' + esc(m0.judul) + '"></div>' +
+    '<div class="fg"><label>Keterangan</label><input class="txt" id="peKet" maxlength="300" value="' + esc(m0.ket) + '"></div>' +
+    '<div class="fg"><label>Urutan tampil</label><input class="txt" id="peUr" type="number" min="0" value="' + (m0.urutan || 0) + '"><div class="hint" style="font-size:12px;color:var(--muted);margin-top:6px">Angka kecil tampil lebih dulu. Untuk mengganti isi PDF, hapus materi lalu tambahkan lagi.</div></div>',
+    buttons: [{ label: 'Batal' }, { label: 'Simpan', cls: 'pri', click: async function (close, m, btn) {
+      busy(btn, true);
+      try { await call('paparanUpdate', { id: m0.id, judul: $('#peJudul', m).value, ket: $('#peKet', m).value, urutan: Number($('#peUr', m).value) || 0 }); close(); toast('Materi diperbarui.'); pprAfterChange(); }
+      catch (e) { busy(btn, false); fail(e); }
+    } }] });
+}
+function pprFind(id) { return (PPL || []).filter(function (x) { return x.id === id; })[0]; }
+document.addEventListener('click', async function (e) {
+  if (e.target.closest('#pprOv')) return;
+  var x;
+  if ((x = e.target.closest('[data-ppadd]'))) return pprAddModal();
+  if ((x = e.target.closest('[data-ppe]'))) { e.stopPropagation(); var m = pprFind(x.dataset.ppe); if (m) pprEditModal(m); return; }
+  if ((x = e.target.closest('[data-ppd]'))) {
+    e.stopPropagation(); var d = pprFind(x.dataset.ppd); if (!d) return;
+    if (!(await confirmBox('Hapus materi', 'Hapus materi <b>' + esc(d.judul) + '</b>? Berkas PDF-nya dipindahkan ke Sampah Google Drive.', 'Hapus', true))) return;
+    try { await call('paparanDelete', { id: d.id }); idbDel(d.id); delete PDOC[d.id]; toast('Materi dihapus.'); pprAfterChange(); } catch (err) { fail(err); }
+    return;
+  }
+  if ((x = e.target.closest('[data-pp]'))) return pprOpen(x.dataset.pp);
+  if ((x = e.target.closest('[data-go]'))) go(x.dataset.go);
+});
+document.addEventListener('keydown', function (e) { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.ppr-card[data-pp]')) { e.preventDefault(); pprOpen(e.target.dataset.pp); } });
+
+/* ---------- layar paparan ---------- */
+function pprBuild() {
+  var ov = document.createElement('div'); ov.id = 'pprOv'; ov.className = 'ppr-ov';
+  ov.innerHTML = '<div class="ppr-stage"><canvas id="pprCv"></canvas><div class="ppr-load" id="pprLd"><div class="ppr-spin"></div><b id="pprLdT">Memuat materi…</b></div></div>' +
+    '<div class="ppr-top"><div class="ppr-tt"><b id="pprM"></b><span id="pprS"></span></div><div class="sp"></div>' +
+    '<button class="ppr-b" id="pprG" title="Daftar slide (G)">' + ic('grid', 18) + '</button><button class="ppr-b" id="pprF" title="Layar penuh (F)">' + ic('full', 18) + '</button><button class="ppr-b" id="pprX" title="Keluar (Esc)">' + ic('close', 18) + '</button></div>' +
+    '<button class="ppr-nav l" id="pprP" aria-label="Sebelumnya">' + ic('left', 26) + '</button><button class="ppr-nav r" id="pprN" aria-label="Berikutnya">' + ic('right', 26) + '</button>' +
+    '<div class="ppr-bot"><span id="pprC"></span><div class="ppr-prog"><i id="pprPg"></i></div></div>' +
+    '<div class="ppr-panel" id="pprL"></div>';
+  document.body.appendChild(ov);
+  PV = { ov: ov, n: 1, t: 0, doc: null, m: null, cache: {}, tok: 0 };
+  $('#pprP').onclick = function (e) { e.stopPropagation(); pprGo(PV.n - 1); };
+  $('#pprN').onclick = function (e) { e.stopPropagation(); pprGo(PV.n + 1); };
+  $('#pprX').onclick = pprClose; $('#pprF').onclick = pprFull;
+  $('#pprG').onclick = pprToggleList;
+  $('#pprL').onclick = function (e) { var b = e.target.closest('[data-pj]'); if (b) { ov.classList.remove('list'); pprGo(Number(b.dataset.pj)); } };
+  ov.querySelector('.ppr-stage').onclick = function (e) { if (!PV.doc) return; if (ov.classList.contains('list')) return ov.classList.remove('list'); pprGo(PV.n + (e.clientX < innerWidth / 3 ? -1 : 1)); };
+  var sx = null;
+  ov.addEventListener('touchstart', function (e) { sx = e.touches[0].clientX; }, { passive: true });
+  ov.addEventListener('touchend', function (e) { if (sx == null) return; var dx = e.changedTouches[0].clientX - sx; sx = null; if (Math.abs(dx) > 50) { e.preventDefault(); pprGo(PV.n + (dx < 0 ? 1 : -1)); } });
+  ov.addEventListener('mousemove', pprWake);
+  document.addEventListener('keydown', pprKey);
+  var rz; window.addEventListener('resize', function () { if (!PV.doc || !ov.classList.contains('on')) return; clearTimeout(rz); rz = setTimeout(function () { PV.cache = {}; pprGo(PV.n, true); }, 150); });
+}
+async function pprOpen(id) {
+  if (!PV) pprBuild();
+  var ov = PV.ov, my = ++PV.tok;
+  ov.classList.add('on', 'ui'); ov.classList.remove('list'); document.body.style.overflow = 'hidden';
+  if (!document.fullscreenElement && ov.requestFullscreen) ov.requestFullscreen().catch(function () { });
+  PV.doc = null; PV.cache = {}; $('#pprCv').getContext('2d').clearRect(0, 0, 9999, 9999); $('#pprCv').style.visibility = 'hidden';
+  $('#pprLd').hidden = false; $('#pprLdT').textContent = 'Memuat materi…'; $('#pprL').innerHTML = '';
+  try {
+    var L = await pprList(), m = pprFind(id); if (!m) throw new Error('Materi tidak ditemukan.');
+    PV.m = m; $('#pprM').textContent = m.judul; $('#pprS').textContent = m.ket || ''; $('#pprC').textContent = ''; $('#pprPg').style.width = '0';
+    var doc = await pprDoc(m, function (pc) { if (my === PV.tok) $('#pprLdT').textContent = 'Mengunduh materi… ' + pc + '%'; });
+    if (my !== PV.tok) return;
+    PV.doc = doc; $('#pprLd').hidden = true;
+    var h = ''; for (var i = 1; i <= doc.numPages; i++) h += '<button data-pj="' + i + '"><canvas data-th="' + i + '"></canvas><span>' + i + '</span></button>';
+    $('#pprL').innerHTML = '<b class="ppr-lt">' + esc(m.judul) + ' · ' + doc.numPages + ' slide</b><div class="ppr-lg">' + h + '</div>';
+    PV.thDone = false;
+    pprGo(1, true); pprWake();
+  } catch (e) { if (my === PV.tok) { pprClose(); fail(e); } }
+}
+async function pprRender(n) {
+  var st = PV.ov.querySelector('.ppr-stage'), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var key = n + '@' + st.clientWidth + 'x' + st.clientHeight;
+  if (!PV.cache[key]) PV.cache[key] = pdfToCanvas(PV.doc, n, st.clientWidth * dpr, st.clientHeight * dpr);
+  var ks = Object.keys(PV.cache); if (ks.length > 6) delete PV.cache[ks[0]];
+  return PV.cache[key];
+}
+async function pprGo(n, force) {
+  if (!PV || !PV.doc) return;
+  var N = PV.doc.numPages; if (n < 1 || n > N) return; if (n === PV.n && !force) return;
+  PV.n = n; var my = PV.tok;
+  $('#pprC').textContent = n + ' / ' + N; $('#pprPg').style.width = (n / N * 100) + '%';
+  $('#pprP').style.visibility = n > 1 ? '' : 'hidden'; $('#pprN').style.visibility = n < N ? '' : 'hidden';
+  $$('#pprL [data-pj]').forEach(function (b) { b.classList.toggle('on', Number(b.dataset.pj) === n); });
+  try {
+    var src = await pprRender(n); if (PV.n !== n || my !== PV.tok) return;
+    var cv = $('#pprCv'), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = src.width; cv.height = src.height; cv.style.width = (src.width / dpr) + 'px'; cv.style.height = (src.height / dpr) + 'px';
+    cv.getContext('2d').drawImage(src, 0, 0); cv.style.visibility = 'visible';
+    [n + 1, n - 1].forEach(function (k) { if (k >= 1 && k <= N) pprRender(k); });
+  } catch (e) { fail(e); }
+}
+async function pprThumbs() {
+  if (PV.thDone || !PV.doc) return; PV.thDone = true; var doc = PV.doc;
+  for (var i = 1; i <= doc.numPages; i++) {
+    if (doc !== PV.doc) return;
+    var el = $('#pprL [data-th="' + i + '"]'); if (!el) return;
+    try { var c = await pdfToCanvas(doc, i, 220, 124); el.width = c.width; el.height = c.height; el.getContext('2d').drawImage(c, 0, 0); } catch (e) { }
+  }
+}
+function pprToggleList() { PV.ov.classList.toggle('list'); if (PV.ov.classList.contains('list')) pprThumbs(); pprWake(); }
+function pprWake() { if (!PV) return; PV.ov.classList.add('ui'); clearTimeout(PV.t); PV.t = setTimeout(function () { if (PV.doc && !PV.ov.classList.contains('list')) PV.ov.classList.remove('ui'); }, 2600); }
+function pprFull() { if (document.fullscreenElement) document.exitFullscreen().catch(function () { }); else if (PV.ov.requestFullscreen) PV.ov.requestFullscreen().catch(function () { toast('Layar penuh tidak didukung browser ini.', true); }); }
+function pprClose() { if (!PV) return; PV.tok++; PV.ov.classList.remove('on', 'list'); document.body.style.overflow = ''; if (document.fullscreenElement) document.exitFullscreen().catch(function () { }); }
+function pprKey(e) {
+  if (!PV || !PV.ov.classList.contains('on')) return;
+  var k = e.key;
+  if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Enter') { e.preventDefault(); pprGo(PV.n + 1); }
+  else if (k === 'ArrowLeft' || k === 'PageUp' || k === 'Backspace') { e.preventDefault(); pprGo(PV.n - 1); }
+  else if (k === 'Home') pprGo(1); else if (k === 'End' && PV.doc) pprGo(PV.doc.numPages);
+  else if (k === 'Escape') { if (PV.ov.classList.contains('list')) PV.ov.classList.remove('list'); else pprClose(); }
+  else if (k === 'f' || k === 'F') pprFull();
+  else if (k === 'g' || k === 'G') pprToggleList();
+  else return;
+  pprWake();
+}
+
 /* ------------------------- PWA ------------------------- */
 var deferredInstall = null;
 function isStandalone() { return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; }
@@ -1298,7 +1564,7 @@ function serverModal() {
   if (isIOS() && !isStandalone()) { var lk = $('#lnkInstall'); lk.classList.remove('hidden'); lk.textContent = 'Pasang di iPhone'; lk.onclick = function (e) { e.preventDefault(); modal({ title: 'Pasang di iPhone / iPad', body: '<div style="line-height:1.7">Buka halaman ini di <b>Safari</b>, ketuk ikon <b>Bagikan</b> (kotak dengan panah), lalu pilih <b>Tambah ke Layar Utama</b>.</div>', buttons: [{ label: 'Mengerti', cls: 'pri' }] }); }; }
   var net = function () { $('#offline').classList.toggle('hidden', navigator.onLine); };
   window.addEventListener('online', net); window.addEventListener('offline', net); net();
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  if ('serviceWorker' in navigator && location.protocol !== 'file:' && !window.SPADAKES_DEMO) {
     navigator.serviceWorker.register('sw.js').then(function (reg) {
       reg.addEventListener('updatefound', function () {
         var w = reg.installing; if (!w) return;

@@ -51,10 +51,14 @@ Setelah mengubah file frontend, naikkan `VERSION` di **sw.js** (mis. `spadakes-v
 - Filter menciut menjadi ringkasan di HP (*Ubah filter*).
 - Sesi login tersimpan 6 jam; data API tidak pernah di-cache; shell aplikasi tetap terbuka saat offline.
 
-## Periode MINGGUAN
-- Periode kini **Minggu 1–53** (Senin–Minggu; Minggu 1 = minggu yang memuat 1 Januari), lengkap dengan rentang tanggal.
-- Tiap periode dapat diberi **Tanggal data / laporan** sendiri (Struktur Anggaran → Periode → *Status Periode*, atau saat membuat periode baru). Tanggal ini dipakai pada judul laporan Excel, nama file, dan nama sheet (mis. "Per 30 September 2026"). Bila kosong dipakai hari Minggu akhir minggu.
-- **Data lama berbasis bulan?** Di editor Apps Script jalankan sekali fungsi `migrasiBulanKeMinggu` (salin dulu spreadsheet sebagai cadangan). Bulan diubah ke minggu yang memuat akhir bulan itu (September 2026 → Minggu 40) dan tanggal datanya diset ke akhir bulan. Database baru otomatis sudah mingguan.
+## Periode = Tanggal Data (Bulan + Tanggal)
+- Membuat periode: **Input Realisasi → Periode & TA → Periode Baru** → pilih **Bulan** dan **Tanggal** (mis. Oktober, 7), opsional salin data dari periode sebelumnya. Tiap periode adalah satu tanggal data; boleh banyak tanggal dalam satu bulan (mingguan, dua-mingguan, dsb.).
+- Filter **Periode** menampilkan tanggal yang sudah dibuat, dikelompokkan per bulan. Tanggal itu dipakai pada judul laporan Excel, nama file, dan nama sheet (mis. "Per 30 September 2026").
+- Grafik dashboard menampilkan satu titik per tanggal data.
+- **Data lama (bulan atau minggu)?** Di editor Apps Script jalankan sekali fungsi **`migrasiKeTanggal`** (salin dulu spreadsheet sebagai cadangan). Bulan → tanggal terakhir bulan itu (September 2026 → 30 September 2026); minggu → tanggal data yang pernah diisi atau hari Minggu akhir minggu. Aman dijalankan ulang. Database baru otomatis sudah berbasis tanggal.
+
+## Input Data Bulan Lalu dari Excel
+Menu **Input Data dari Excel**: unggah berkas *RINCIAN REALISASI ANGGARAN DINKES Per <tanggal>.xlsx* (satu berkas per tanggal). Aplikasi membaca berkasnya langsung di browser, mencocokkan kode sub kegiatan per unit, menampilkan ringkasan (yang cocok / tidak ditemukan), lalu menyimpannya sebagai periode pada **Bulan + Tanggal** yang terbaca dari berkas (dapat diubah). Jenis kolom pagu (Murni / Perubahan) terdeteksi dari judul kolom dan dapat diganti; PAD dari lembar *Rekap* ikut diimpor bila dicentang. Bila periodenya belum ada, otomatis dibuat. Pengguna unit hanya dapat mengimpor unitnya sendiri.
 
 ## Kecepatan & "Ingat saya"
 - Backend menyimpan tabel besar (Struktur, Nilai, dst.) di cache Apps Script yang otomatis diperbarui saat ada penyimpanan; penyimpanan hanya menulis baris yang berubah; Log dibaca 1.500 baris terakhir.
@@ -65,3 +69,15 @@ Setelah mengubah file frontend, naikkan `VERSION` di **sw.js** (mis. `spadakes-v
 ## Catatan keamanan
 - URL Web App bersifat publik, tetapi semua data dilindungi login (token sesi, hash SHA‑256+salt, kunci setelah 5 kali gagal).
 - Jangan menaruh data rahasia di repository GitHub; seluruh data berada di Google Sheets milik akun pemilik deployment.
+
+## Hapus periode
+Input Realisasi → **Periode & TA** → tab **Status Periode** → tombol **Hapus** (khusus Admin).
+Menghapus isian realisasi, anggaran kas, dan PAD pada tanggal tersebut. Struktur anggaran tidak ikut terhapus. Tidak bisa dibatalkan.
+
+## Materi Paparan (PDF)
+- Menu **Materi Paparan** (juga tampil di Dashboard). Klik materi → langsung mode paparan layar penuh.
+- **Tambah Paparan** (khusus Admin): unggah PDF (PowerPoint → File → Save As → PDF), maks. 30 MB.
+  Berkas disimpan di Google Drive akun Apps Script, folder "SPADAKes - Materi Paparan" (tidak publik).
+- Kontrol: ← → / klik kiri-kanan layar / geser di HP, G = daftar slide, F = layar penuh, Esc = keluar.
+- Pembaca PDF: js/vendor/pdf.min.js & pdf.worker.min.js (pdf.js 3.11.174, Mozilla, lisensi Apache-2.0).
+- Setelah memperbarui Code.gs + Api.gs, lembar "Paparan" dibuat otomatis pada pemanggilan pertama.

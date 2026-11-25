@@ -1,10 +1,11 @@
 /* SPADAKes service worker: app shell offline, API selalu langsung ke jaringan. */
-var VERSION = 'spadakes-v1.8.3';
+var VERSION = 'spadakes-v1.9.0';
 var SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/config.js', 'manifest.webmanifest',
   'icons/logo.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png'];
 
 self.addEventListener('install', function (e) {
-  e.waitUntil(caches.open(VERSION).then(function (c) { return c.addAll(SHELL); }));
+  self.skipWaiting();
+  e.waitUntil(caches.open(VERSION).then(function (c) { return c.addAll(SHELL.map(function (u) { return new Request(u, { cache: 'reload' }); })); }).catch(function () { }));
 });
 
 self.addEventListener('activate', function (e) {
@@ -34,11 +35,17 @@ self.addEventListener('fetch', function (e) {
   if (/\/api(\.php)?$/.test(url.pathname)) return; // API server sendiri (PHP/Node): selalu ke jaringan
   // Navigasi: jaringan dulu, jatuh ke cache (agar update langsung terlihat)
   if (req.mode === 'navigate') {
-    e.respondWith(fetch(req).then(function (r) { var cp = r.clone(); caches.open(VERSION).then(function (c) { c.put('index.html', cp); }); return r; })
+    e.respondWith(fetch(req, { cache: 'no-cache' }).then(function (r) { var cp = r.clone(); caches.open(VERSION).then(function (c) { c.put('index.html', cp); }); return r; })
       .catch(function () { return caches.match('index.html').then(function (r) { return r || caches.match('./'); }); }));
     return;
   }
-  // Aset statis: cache dulu, perbarui di latar belakang
+  // Berkas aplikasi (html/js/css/json): selalu periksa versi terbaru di server, cache hanya cadangan saat offline
+  if (/\.(html|js|css|json|webmanifest)$/.test(url.pathname) && !/\/js\/vendor\//.test(url.pathname)) {
+    e.respondWith(fetch(req, { cache: 'no-cache' }).then(function (r) { if (r && r.ok) { var cp = r.clone(); caches.open(VERSION).then(function (c) { c.put(req, cp); }); } return r; })
+      .catch(function () { return caches.match(req); }));
+    return;
+  }
+  // Aset statis (ikon, pembaca PDF): cache dulu, perbarui di latar belakang
   e.respondWith(caches.match(req).then(function (hit) {
     var net = fetch(req).then(function (r) { if (r && r.ok) { var cp = r.clone(); caches.open(VERSION).then(function (c) { c.put(req, cp); }); } return r; }).catch(function () { return hit; });
     return hit || net;

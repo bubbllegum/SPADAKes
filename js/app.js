@@ -167,7 +167,7 @@ function ic(n, s) { return '<svg width="' + (s || 17) + '" height="' + (s || 17)
 /* ------------------------- navigasi ------------------------- */
 var PAGES = {
   dashboard: { t: 'Dashboard', crumb: 'Dashboard Pengendalian Deviasi Anggaran', ic: 'dash', grp: 'MENU UTAMA', filters: ['ta', 'per', 'jenis', 'dasar', 'unit'] },
-  paparan: { t: 'Materi Paparan', crumb: 'Materi Paparan', ic: 'ppt', grp: 'MENU UTAMA', filters: [] },
+  paparan: { t: 'Modul & Materi', crumb: 'Modul & Materi', ic: 'ppt', grp: 'MENU UTAMA', filters: [] },
   struktur: { t: 'Input Realisasi', crumb: 'Input Realisasi Anggaran per Unit', ic: 'tree', grp: 'MENU UTAMA', filters: ['ta', 'per', 'jenis', 'dasar', 'unit'] },
   importPrev: { t: 'Import Data Periode Sebelumnya', crumb: 'Import Data Periode Sebelumnya', ic: 'imp', grp: 'MENU UTAMA', filters: ['ta', 'unit'], write: true },
   importXlsx: { t: 'Input Data dari Excel', crumb: 'Input Data Bulan Lalu dari Excel', ic: 'xls', grp: 'MENU UTAMA', filters: [], write: true },
@@ -187,7 +187,7 @@ function buildNav() {
     if (p.admin && role !== 'Admin') return;
     if (p.write && role === 'Pimpinan') return;
     if (p.grp !== g) { g = p.grp; h += '<div class="nav-h">' + g + '</div>'; }
-    h += '<div class="nav-a" data-p="' + k + '" tabindex="0">' + ic(p.ic) + '<span>' + p.t + '</span></div>';
+    h += '<div class="nav-a" data-p="' + k + '" tabindex="0">' + ic(p.ic) + '<span>' + esc(p.t) + '</span></div>';
   });
   $('#nav').innerHTML = h;
   $$('.nav-a').forEach(function (a) {
@@ -701,15 +701,22 @@ async function exportExcel(btn) {
   busy(btn, true, 'Menyiapkan Excel…');
   try {
     var r = await call('exportExcel', fp());
+    if (!r.base64 && r.layout) { // server PHP: berkas disusun di browser lalu salinannya disimpan ke arsip server
+      await loadScript('js/xlsx-builder.js');
+      r.base64 = bytesToB64(Uint8Array.from(xl_buildLaporan_(r.layout)));
+      if (r.arsipId) callRaw('arsipSimpan', { id: r.arsipId, base64: r.base64 }).catch(function () { });
+    }
     download(r.base64, r.name);
     toast('Excel siap: <b>' + esc(r.name) + '</b>' + (r.url ? '<br><a href="' + esc(r.url) + '" target="_blank" rel="noopener">Buka salinan di Google Drive</a>' : ''), false, 8000);
   } catch (e) { fail(e); }
   busy(btn, false);
 }
-function download(b64, name) {
+var _scr = {};
+function loadScript(src) { return _scr[src] || (_scr[src] = new Promise(function (res, rej) { var s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = function () { delete _scr[src]; rej(new Error('Gagal memuat ' + src)); }; document.head.appendChild(s); })); }
+function download(b64, name, mime) {
   var bin = atob(b64), u8 = new Uint8Array(bin.length);
   for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-  var url = URL.createObjectURL(new Blob([u8], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  var url = URL.createObjectURL(new Blob([u8], { type: mime || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
   var a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click();
   setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1500);
 }
@@ -898,10 +905,11 @@ async function pgRiwayat(c) {
 async function pgArsip(c) {
   var rows; try { rows = await call('arsip'); } catch (e) { return fail(e); }
   c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Arsip</div><h2>Dokumen &amp; Arsip Laporan</h2></div><div class="sp"></div><button class="btn gold" id="arX">' + ic('xls', 15) + 'Buat Laporan Excel</button></div>' +
-    '<div class="ctx"><span>Setiap ekspor Excel otomatis tersimpan di folder Google Drive <b>“SPADAKes - Arsip Laporan”</b>. Laporan baru dibuat sesuai filter: TA ' + S.f.ta + ', ' + perName(S.f.ta, S.f.periode) + ', ' + dasarText() + ', ' + esc(scopeText()) + '.</span></div>' +
+    '<div class="ctx"><span>Setiap ekspor Excel otomatis tersimpan ' + (!!S.boot.server ? 'di <b>server</b>' : 'di folder Google Drive <b>“SPADAKes - Arsip Laporan”</b>') + '. Laporan baru dibuat sesuai filter: TA ' + S.f.ta + ', ' + perName(S.f.ta, S.f.periode) + ', ' + dasarText() + ', ' + esc(scopeText()) + '.</span></div>' +
     '<div class="card"><div class="tbl-wrap"><table class="t"><thead><tr><th class="l">Nama Dokumen</th><th class="l">TA / Periode</th><th class="l">Dibuat oleh</th><th class="l">Waktu</th><th class="c">Berkas</th></tr></thead><tbody>' +
-    (rows.length ? rows.map(function (r) { return '<tr><td class="l"><span class="pill ok" style="margin-right:8px">XLSX</span><b>' + esc(r.nama) + '</b></td><td class="l">' + esc(r.ta) + ' · ' + (r.periode ? perName(r.ta, Number(r.periode)) : '') + '</td><td class="l">' + esc(r.user) + '</td><td class="l num">' + esc(r.ts) + '</td><td class="c">' + (r.url ? '<a class="btn sm" href="' + esc(r.url) + '" target="_blank" rel="noopener">Buka di Drive</a>' : '<span class="na">—</span>') + '</td></tr>'; }).join('') : '<tr><td colspan="5"><div class="empty"><b>Belum ada arsip</b>Klik “Buat Laporan Excel” untuk membuat laporan pertama.</div></td></tr>') + '</tbody></table></div></div>';
+    (rows.length ? rows.map(function (r) { return '<tr><td class="l"><span class="pill ok" style="margin-right:8px">XLSX</span><b>' + esc(r.nama) + '</b></td><td class="l">' + esc(r.ta) + ' · ' + (r.periode ? perName(r.ta, Number(r.periode)) : '') + '</td><td class="l">' + esc(r.user) + '</td><td class="l num">' + esc(r.ts) + '</td><td class="c">' + (r.url ? '<a class="btn sm" href="' + esc(r.url) + '" target="_blank" rel="noopener">Buka di Drive</a>' : r.id ? '<button class="btn sm" data-arf="' + esc(r.id) + '">Unduh</button>' : '<span class="na">—</span>') + '</td></tr>'; }).join('') : '<tr><td colspan="5"><div class="empty"><b>Belum ada arsip</b>Klik “Buat Laporan Excel” untuk membuat laporan pertama.</div></td></tr>') + '</tbody></table></div></div>';
   $('#arX').onclick = async function () { await exportExcel(this); render(); };
+  $$('[data-arf]', c).forEach(function (b) { b.onclick = async function () { busy(b, true, '…'); try { var f = await call('arsipFile', { id: b.dataset.arf }); download(f.base64, f.name); } catch (e) { fail(e); } busy(b, false); }; });
 }
 
 async function pgUnit(c) {
@@ -933,7 +941,7 @@ async function pgUnit(c) {
 async function pgAkun(c) {
   var rows; try { rows = await call('users'); } catch (e) { return fail(e); }
   var cfg = S.boot.cfg, uopts = S.boot.units.map(function (u) { return '<option value="' + u.id + '">' + esc(u.nama) + '</option>'; }).join('');
-  c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Keamanan</div><h2>Kontrol Akun &amp; Pengaturan</h2></div><div class="sp"></div><button class="btn pri" id="acAdd">' + ic('plus', 15) + 'Tambah Akun</button></div>' +
+  c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Keamanan</div><h2>Kontrol Akun &amp; Pengaturan</h2></div><div class="sp"></div>' + (!!S.boot.server ? '' : '<button class="btn" id="acSql" title="Unduh seluruh data untuk dipindahkan ke server MySQL">' + ic('imp', 15) + 'Unduh Data untuk Server SQL</button>') + '<button class="btn pri" id="acAdd">' + ic('plus', 15) + 'Tambah Akun</button></div>' +
     '<div class="grid2" style="grid-template-columns:minmax(0,2.4fr) minmax(280px,1fr)"><div class="card"><div class="card-h"><div><h3>Daftar Akun</h3><p>' + rows.length + ' akun terdaftar · Admin: semua akses · Operator Unit: unitnya saja · Pimpinan: hanya melihat</p></div></div><div class="card-b" style="padding-top:10px"><div class="tbl-wrap" style="max-height:560px"><table class="t"><thead><tr><th class="l">Pengguna</th><th class="l">Role</th><th class="l">Unit</th><th class="l">Login terakhir</th><th class="c">Status</th><th class="c">Aksi</th></tr></thead><tbody>' +
     rows.map(function (r) { return '<tr><td class="l"><div style="display:flex;gap:10px;align-items:center"><div class="av" style="width:32px;height:32px;font-size:11px">' + initials(r.nama) + '</div><div><b>' + esc(r.nama) + '</b><br><small style="color:var(--muted)">@' + esc(r.username) + '</small></div></div></td><td class="l">' + (ROLE_LABEL[r.role] || r.role) + '</td><td class="l">' + (r.unit ? esc(unitShort(r.unit)) : '<span class="na">Semua</span>') + '</td><td class="l num">' + esc(String(r.lastLogin || '—').slice(0, 16)) + '</td><td class="c">' + (r.aktif ? '<span class="pill ok">AKTIF</span>' : '<span class="pill bad">NONAKTIF</span>') + '</td><td class="c"><div class="acts"><button class="ab" data-ue="' + esc(r.username) + '" title="Ubah">' + ic('edit', 14) + '</button><button class="ab" data-ur="' + esc(r.username) + '" title="Reset password">' + ic('lock', 14) + '</button></div></td></tr>'; }).join('') +
     '</tbody></table></div></div></div>' +
@@ -957,6 +965,11 @@ async function pgAkun(c) {
           else toast('Akun diperbarui.');
         } catch (e) { fail(e); busy(btn, false); }
       } }] });
+  };
+  if ($('#acSql')) $('#acSql').onclick = async function () {
+    var b = this; busy(b, true, 'Menyiapkan…');
+    try { var r = await call('eksporSQL', {}); download(r.base64, r.name, 'application/sql'); toast('Berkas <b>' + esc(r.name) + '</b> siap. Impor ke MySQL lewat phpMyAdmin.', false, 9000); } catch (e) { fail(e); }
+    busy(b, false);
   };
   $('#acAdd').onclick = function () { edit(); };
   $$('[data-ue]').forEach(function (b) { b.onclick = function () { edit(rows.filter(function (r) { return r.username === b.dataset.ue; })[0]); }; });
@@ -1282,21 +1295,63 @@ function b64ToBytes(s) { var bin = atob(s), u = new Uint8Array(bin.length); for 
 function bytesToB64(u8) { var s = '', CH = 0x8000; for (var i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i + CH)); return btoa(s); }
 
 async function pprList(force) { if (!PPL || force) PPL = await call('paparanList', {}); return PPL; }
+/** Unduh PDF dari server: beberapa potongan sekaligus (paralel) lalu disimpan di perangkat (IndexedDB). */
+var PDL = {}, PCH = 5242880;
+function pprFetch(m, onProg) {
+  if (PDL[m.id]) { if (onProg) PDL[m.id].subs.push(onProg); return PDL[m.id].p; }
+  var job = { subs: onProg ? [onProg] : [] };
+  job.p = (async function () {
+    var buf = await idbGet(m.id);
+    if (buf && (!m.size || buf.byteLength === m.size)) return buf;
+    var size = m.size, got = 0, parts = [], tell = function () { var pc = Math.min(99, Math.round(got / size * 100)); job.subs.forEach(function (f) { try { f(pc); } catch (e) { } }); };
+    var one = async function (idx) { // ambil satu potongan; bila server mengirim lebih sedikit, lanjutkan sampai lengkap
+      var start = idx * PCH, want = Math.min(PCH, size - start), acc = [], have = 0;
+      while (have < want) {
+        var c = await callRaw('paparanFile', { id: m.id, offset: start + have, length: want - have }), u = b64ToBytes(c.base64);
+        if (!u.length) break;
+        if (have + u.length > want) u = u.subarray(0, want - have);
+        acc.push(u); have += u.length; got += u.length; tell();
+      }
+      var out = new Uint8Array(have), q = 0; acc.forEach(function (x) { out.set(x, q); q += x.length; }); parts[idx] = out;
+    };
+    if (!size) { var c0 = await callRaw('paparanFile', { id: m.id, offset: 0, length: PCH }); size = c0.size; }
+    var n = Math.ceil(size / PCH), next = 0;
+    var worker = async function () { while (next < n) await one(next++); };
+    var ws = []; for (var w = 0; w < Math.min(4, n); w++) ws.push(worker());
+    await Promise.all(ws);
+    var total = parts.reduce(function (s, x) { return s + x.length; }, 0), all = new Uint8Array(total), p = 0;
+    parts.forEach(function (x) { all.set(x, p); p += x.length; });
+    idbPut(m.id, all.buffer);
+    return all.buffer;
+  })();
+  PDL[m.id] = job;
+  job.p.then(function () { delete PDL[m.id]; pprMarkReady(m.id); }, function () { delete PDL[m.id]; });
+  return job.p;
+}
 async function pprDoc(m, onProg) {
   if (PDOC[m.id]) return PDOC[m.id];
-  var L = await pdfLib(), buf = await idbGet(m.id);
-  if (!buf || (m.size && buf.byteLength !== m.size)) {
-    var off = 0, size = m.size || 1, parts = [];
-    do {
-      var c = await callRaw('paparanFile', { id: m.id, offset: off, length: 6291456 });
-      var u = b64ToBytes(c.base64); parts.push(u); off += u.length; size = c.size;
-      if (onProg) onProg(Math.min(99, Math.round(off / size * 100)));
-    } while (off < size && u.length);
-    var all = new Uint8Array(off), p = 0; parts.forEach(function (x) { all.set(x, p); p += x.length; });
-    buf = all.buffer; idbPut(m.id, buf);
-  }
+  var L = await pdfLib(), buf = await pprFetch(m, onProg);
   PDOC[m.id] = await L.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
   return PDOC[m.id];
+}
+/** Unduh materi di latar belakang agar saat diklik langsung tampil. */
+var _ppPre = false;
+async function pprPrefetch() {
+  if (_ppPre || !PPL || !PPL.length) return;
+  var cn = navigator.connection; if (cn && (cn.saveData || /2g/.test(cn.effectiveType || ''))) return;
+  _ppPre = true;
+  for (var i = 0; i < PPL.length; i++) {
+    var m = PPL[i], b = await idbGet(m.id);
+    if (b && b.byteLength === m.size) { pprMarkReady(m.id); continue; }
+    if (m.size > 60 * 1048576) continue;
+    try { await pprFetch(m); } catch (e) { break; }
+  }
+  _ppPre = false;
+}
+function pprMarkReady(id) { $$('.ppr-card[data-pp="' + id + '"] .ppr-rdy').forEach(function (x) { x.hidden = false; }); }
+async function pprMarkAll() {
+  for (var i = 0; i < (PPL || []).length; i++) { var b = await idbGet(PPL[i].id); if (b && b.byteLength === PPL[i].size) pprMarkReady(PPL[i].id); }
+  setTimeout(pprPrefetch, 1500);
 }
 async function pdfToCanvas(doc, n, w, h) {
   var pg = await doc.getPage(n), v1 = pg.getViewport({ scale: 1 }), sc = Math.min(w / v1.width, h / v1.height), vp = pg.getViewport({ scale: sc });
@@ -1308,7 +1363,7 @@ async function pdfToCanvas(doc, n, w, h) {
 function pprCard(m) {
   return '<div class="ppr-card" role="button" tabindex="0" data-pp="' + esc(m.id) + '" title="Paparkan: ' + esc(m.judul) + '">' +
     '<span class="ppr-th">' + (m.cover ? '<img src="' + esc(m.cover) + '" alt="">' : '<span class="ppr-ph">' + ic('ppt', 34) + '</span>') +
-    '<span class="ppr-play">' + ic('play', 20) + '</span><span class="ppr-no">' + m.pages + ' slide</span></span>' +
+    '<span class="ppr-play">' + ic('play', 20) + '</span><span class="ppr-no">' + m.pages + ' slide</span><span class="ppr-rdy" hidden>✓ Siap</span></span>' +
     '<span class="ppr-tx"><b>' + esc(m.judul) + '</b>' + (m.ket ? '<small>' + esc(m.ket) + '</small>' : '') + '<em>' + esc((m.createdAt || '').slice(0, 10).split('-').reverse().join('/')) + ' · ' + sizeTxt(m.size) + '</em></span>' +
     (isAdm() ? '<span class="ppr-adm"><button class="btn sm" data-ppe="' + esc(m.id) + '">' + ic('edit', 13) + 'Ubah</button><button class="btn sm ppr-del" data-ppd="' + esc(m.id) + '">Hapus</button></span>' : '') + '</div>';
 }
@@ -1317,24 +1372,26 @@ async function pprDashFill() {
   var L; try { L = await pprList(); } catch (e) { box.innerHTML = ''; return; }
   if (!$('#pprDash')) return;
   if (!L.length && !isAdm()) { box.innerHTML = ''; return; }
-  box.innerHTML = '<div class="card ppr-dash"><div class="card-h"><div><h3>Materi Paparan</h3><p>' + (L.length ? L.length + ' materi · klik materi untuk langsung memaparkan' : 'Belum ada materi paparan') + '</p></div><div class="sp"></div>' +
+  box.innerHTML = '<div class="card ppr-dash"><div class="card-h"><div><h3>Modul &amp; Materi</h3><p>' + (L.length ? L.length + ' materi · klik materi untuk langsung memaparkan' : 'Belum ada materi paparan') + '</p></div><div class="sp"></div>' +
     (isAdm() ? '<button class="btn" data-ppadd>' + ic('plus', 15) + 'Tambah Paparan</button>' : '') + '<button class="btn" data-go="paparan">' + ic('grid', 15) + 'Lihat semua</button></div>' +
     '<div class="card-b">' + (L.length ? '<div class="ppr-strip">' + L.map(pprCard).join('') + '</div>' : '<div class="empty" style="padding:18px"><b>Belum ada materi</b>Gunakan tombol Tambah Paparan lalu unggah berkas PDF dari PowerPoint.</div>') + '</div></div>';
+  pprMarkAll();
 }
 async function pgPaparan(c) {
   var L; try { L = await pprList(true); } catch (e) { c.innerHTML = '<div class="card empty"><b>Gagal memuat</b>' + esc(e.message) + '</div>'; return; }
-  c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Paparan</div><h2>Materi Paparan</h2></div><div class="sp"></div>' +
+  c.innerHTML = '<div class="pg-head"><div><div class="eyebrow">Paparan</div><h2>Modul &amp; Materi</h2></div><div class="sp"></div>' +
     (isAdm() ? '<button class="btn pri" data-ppadd>' + ic('plus', 15) + 'Tambah Paparan</button>' : '') + '</div>' +
     '<div class="ctx"><span>Klik salah satu materi — layar langsung berganti ke <b>mode paparan penuh</b>. Gunakan <b>← →</b> atau klik kiri/kanan layar untuk pindah slide, <b>G</b> daftar slide, <b>F</b> layar penuh, <b>Esc</b> keluar.' + (isAdm() ? ' Materi baru ditambahkan dari berkas <b>PDF</b> (PowerPoint → Simpan Sebagai → PDF).' : '') + '</span></div>' +
     (L.length ? '<div class="ppr-grid">' + L.map(pprCard).join('') + '</div>' :
       '<div class="card empty"><b>Belum ada materi paparan</b>' + (isAdm() ? 'Gunakan tombol Tambah Paparan di kanan atas, lalu unggah berkas PDF dari PowerPoint.' : 'Materi akan tampil setelah ditambahkan oleh Admin.') + '</div>');
+  pprMarkAll();
 }
 function pprAfterChange() { PPL = null; if (S.page === 'paparan' || S.page === 'dashboard') render(); }
 
 function pprAddModal() {
   var F = null;
-  var mm = modal({ title: 'Tambah Materi Paparan', body:
-    '<label class="drop" id="ppDrop" style="margin-bottom:16px"><input type="file" id="ppFile" accept="application/pdf,.pdf" hidden>' + ic('ppt', 30) + '<b>Pilih berkas PDF</b><span>atau seret berkas ke sini · maks. 30 MB</span></label>' +
+  var mm = modal({ title: 'Tambah Modul / Materi', body:
+    '<label class="drop" id="ppDrop" style="margin-bottom:16px"><input type="file" id="ppFile" accept="application/pdf,.pdf" hidden>' + ic('ppt', 30) + '<b>Pilih berkas PDF</b><span>atau seret berkas ke sini · maks. 50 MB</span></label>' +
     '<div id="ppPrev"></div>' +
     '<div class="fg"><label>Judul materi</label><input class="txt" id="ppJudul" maxlength="120" placeholder="mis. Paparan Implementasi SPADAKes"></div>' +
     '<div class="fg"><label>Keterangan (opsional)</label><input class="txt" id="ppKet" maxlength="300" placeholder="mis. PKP XXIV · Pandeglang 2026"></div>' +
@@ -1345,7 +1402,11 @@ function pprAddModal() {
       if (!judul) return toast('Judul materi wajib diisi.', true);
       busy(btn, true, 'Mengunggah… mohon tunggu');
       try {
-        var r = await call('paparanAdd', { judul: judul, ket: $('#ppKet', m).value.trim(), nama: F.name, pages: F.pages, cover: F.cover, base64: bytesToB64(F.u8) });
+        var meta = { judul: judul, ket: $('#ppKet', m).value.trim(), nama: F.name, pages: F.pages, cover: F.cover }, r;
+        // unggah bertahap: per 2 MB (server sendiri) atau per 5 MB (Apps Script)
+        var up = (Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).toLowerCase(), CH = S.boot.server ? 2097152 : 5242880;
+        for (var i = 0, k = 0; i < F.u8.length; i += CH, k++) { btn.innerHTML = 'Mengunggah… ' + Math.min(99, Math.round(i / F.u8.length * 100)) + '%'; await callRaw('paparanChunk', { upId: up, i: k, base64: bytesToB64(F.u8.subarray(i, i + CH)) }); }
+        meta.upId = up; btn.innerHTML = 'Menyimpan…'; r = await call('paparanAdd', meta);
         idbPut(r.id, F.u8.buffer.slice(0)); close(); toast('Materi “' + esc(judul) + '” ditambahkan.'); pprAfterChange();
       } catch (e) { busy(btn, false); fail(e); }
     } }] });
@@ -1354,7 +1415,7 @@ function pprAddModal() {
     if (!file) return;
     var prev = $('#ppPrev', m); F = null;
     if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') return toast('Pilih berkas berformat PDF.', true);
-    if (file.size > 30 * 1048576) return toast('Ukuran PDF ' + sizeTxt(file.size) + ' melebihi 30 MB. Kecilkan dulu (PowerPoint → Compress Pictures) lalu simpan ulang sebagai PDF.', true);
+    if (file.size > 50 * 1048576) return toast('Ukuran PDF ' + sizeTxt(file.size) + ' melebihi 50 MB. Kecilkan dulu (PowerPoint → Compress Pictures) lalu simpan ulang sebagai PDF.', true);
     prev.innerHTML = '<div class="ppr-up"><div class="skel" style="width:100%;height:100%"></div></div>';
     try {
       var u8 = new Uint8Array(await file.arrayBuffer());
@@ -1373,7 +1434,7 @@ function pprAddModal() {
   drop.addEventListener('drop', function (e) { take(e.dataTransfer && e.dataTransfer.files[0]); });
 }
 function pprEditModal(m0) {
-  modal({ title: 'Ubah Materi Paparan', body:
+  modal({ title: 'Ubah Modul / Materi', body:
     '<div class="fg"><label>Judul materi</label><input class="txt" id="peJudul" maxlength="120" value="' + esc(m0.judul) + '"></div>' +
     '<div class="fg"><label>Keterangan</label><input class="txt" id="peKet" maxlength="300" value="' + esc(m0.ket) + '"></div>' +
     '<div class="fg"><label>Urutan tampil</label><input class="txt" id="peUr" type="number" min="0" value="' + (m0.urutan || 0) + '"><div class="hint" style="font-size:12px;color:var(--muted);margin-top:6px">Angka kecil tampil lebih dulu. Untuk mengganti isi PDF, hapus materi lalu tambahkan lagi.</div></div>',

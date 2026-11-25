@@ -1,5 +1,5 @@
 /* SPADAKes service worker: app shell offline, API selalu langsung ke jaringan. */
-var VERSION = 'spadakes-v1.7.0';
+var VERSION = 'spadakes-v1.8.3';
 var SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/config.js', 'manifest.webmanifest',
   'icons/logo.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png'];
 
@@ -31,6 +31,7 @@ self.addEventListener('fetch', function (e) {
     return;
   }
   if (url.origin !== location.origin) return;
+  if (/\/api(\.php)?$/.test(url.pathname)) return; // API server sendiri (PHP/Node): selalu ke jaringan
   // Navigasi: jaringan dulu, jatuh ke cache (agar update langsung terlihat)
   if (req.mode === 'navigate') {
     e.respondWith(fetch(req).then(function (r) { var cp = r.clone(); caches.open(VERSION).then(function (c) { c.put('index.html', cp); }); return r; })

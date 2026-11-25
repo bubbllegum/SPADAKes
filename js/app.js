@@ -1551,6 +1551,67 @@ function pprKey(e) {
   pprWake();
 }
 
+
+/* ------------------- pembaruan otomatis -------------------
+ * Setiap 2 menit (dan saat tab kembali dibuka) aplikasi memeriksa apakah berkas di server berubah.
+ * Bila berubah: langsung memuat versi baru, kecuali ada isian belum disimpan / jendela terbuka / sedang paparan
+ * — dalam hal itu muncul pemberitahuan dan pembaruan dilakukan saat aman. */
+var APP_VER = '1.9.0';
+var UPD = { sig: null, pending: false, busy: false, ver: false };
+var UPD_FILES = ['index.html', 'js/app.js', 'css/app.css'];
+async function updSig() {
+  var parts = await Promise.all(UPD_FILES.map(function (f) {
+    return fetch(f + '?v=' + Date.now(), { method: 'GET', cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } }).then(function (r) {
+      if (!r.ok) return '';
+      var h = r.headers.get('etag') || r.headers.get('last-modified');
+      if (h) { try { r.body && r.body.cancel(); } catch (e) { } return h; }
+      return r.text().then(function (s) { var x = 0; for (var i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) | 0; return s.length + ':' + x; });
+    }).catch(function () { return null; });
+  }));
+  if (parts.some(function (x) { return x === null; })) return null; // offline: lewati
+  return parts.join('|');
+}
+function updSafe() { return !(ST.dirty && Object.keys(ST.dirty).length) && !document.querySelector('.mask') && !(PV && PV.ov && PV.ov.classList.contains('on')); }
+function updApply() {
+  if (!updSafe()) {
+    if (!UPD.pending) { UPD.pending = true; toast('Versi baru aplikasi tersedia — diperbarui otomatis setelah perubahan disimpan. <a href="#" id="swReload" style="color:#fff;font-weight:800;text-decoration:underline">Perbarui sekarang</a>', false, 15000); }
+    return;
+  }
+  var n = 0, last = 0;
+  try { n = Number(sessionStorage.getItem('spadakes_upd_n') || 0); last = Number(sessionStorage.getItem('spadakes_upd_t') || 0); } catch (e) { }
+  if (Date.now() - last > 300000) n = 0;
+  if (n >= 2) { if (!UPD.warned) { UPD.warned = true; toast('Versi baru tersedia tetapi browser masih memakai versi lama. Tekan Ctrl+Shift+R.', true, 15000); } return; }
+  try { sessionStorage.setItem('spadakes_upd', '1'); sessionStorage.setItem('spadakes_upd_n', String(n + 1)); sessionStorage.setItem('spadakes_upd_t', String(Date.now())); } catch (e) { }
+  var go2 = function () { location.reload(); };
+  if (window._swReg && navigator.serviceWorker) {
+    var done = false, fin = function () { if (!done) { done = true; go2(); } };
+    navigator.serviceWorker.addEventListener('controllerchange', fin);
+    window._swReg.update().catch(function () { }); setTimeout(fin, 2500);
+  } else go2();
+}
+async function updCheck() {
+  if (UPD.busy || location.protocol === 'file:' || window.SPADAKES_DEMO) return;
+  UPD.busy = true;
+  try {
+    var s = await updSig();
+    if (!UPD.ver) { // pertama kali: pastikan kode yang sedang berjalan sama dengan yang ada di server
+      var txt = await fetch('js/app.js?v=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).catch(function () { return ''; });
+      var m = /var APP_VER = '([^']+)'/.exec(txt);
+      if (txt) UPD.ver = true;
+      if (m && m[1] !== APP_VER) { updApply(); return; }
+    }
+    if (s) { if (UPD.sig === null) UPD.sig = s; else if (s !== UPD.sig || UPD.pending) updApply(); }
+  } finally { UPD.busy = false; }
+}
+function autoUpdateInit() {
+  if (location.protocol === 'file:' || window.SPADAKES_DEMO) return;
+  try { if (sessionStorage.getItem('spadakes_upd')) { sessionStorage.removeItem('spadakes_upd'); setTimeout(function () { toast('Aplikasi telah diperbarui ke versi terbaru.'); }, 1200); } } catch (e) { }
+  setTimeout(updCheck, 4000);
+  setInterval(updCheck, 120000);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') updCheck(); });
+  window.addEventListener('focus', function () { updCheck(); });
+}
+
 /* ------------------------- PWA ------------------------- */
 var deferredInstall = null;
 function isStandalone() { return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; }
@@ -1626,15 +1687,10 @@ function serverModal() {
   var net = function () { $('#offline').classList.toggle('hidden', navigator.onLine); };
   window.addEventListener('online', net); window.addEventListener('offline', net); net();
   if ('serviceWorker' in navigator && location.protocol !== 'file:' && !window.SPADAKES_DEMO) {
-    navigator.serviceWorker.register('sw.js').then(function (reg) {
-      reg.addEventListener('updatefound', function () {
-        var w = reg.installing; if (!w) return;
-        w.addEventListener('statechange', function () { if (w.state === 'installed' && navigator.serviceWorker.controller) toast('Versi baru tersedia. <a href="#" id="swReload" style="color:#fff;font-weight:800;text-decoration:underline">Muat ulang</a>', false, 12000); });
-      });
-    }).catch(function () { });
-    var rl = false; navigator.serviceWorker.addEventListener('controllerchange', function () { if (rl) return; rl = true; });
+    navigator.serviceWorker.register('sw.js').then(function (reg) { window._swReg = reg; }).catch(function () { });
     document.addEventListener('click', function (e) { if (e.target.id === 'swReload') { e.preventDefault(); location.reload(); } });
   }
+  autoUpdateInit();
   var qp = new URLSearchParams(location.search); if (qp.get('go')) store('spadakes_page', qp.get('go'));
   var tok = tokGet(), cb = bootLoad();
   var bad = function (e) { var net = /koneksi|terhubung|server/i.test(e.message); if (!net) { S.token = null; tokSet(null); } showLogin(net ? e.message : ''); };
